@@ -78,11 +78,18 @@ QSCORER.engine = {
     ].sort((a, b) => b[2] - a[2]);
     const rec = probArr[0][2] >= 70 ? probArr[0][1] : ftOU;
 
-    // Prediksi Skor HT & FT (Blueprint #8)
-    const htHome = Math.round(pHome * avgGoals * 0.45);
-    const htAway = Math.round(pAway * avgGoals * 0.45);
-    const ftHome = Math.round(pHome * avgGoals);
-    const ftAway = Math.round(pAway * avgGoals);
+// Prediksi Skor HT & FT (Blueprint #8) — Poisson + seeded RNG (deterministik per match)
+    // Expected goals memakai kekuatan relatif tim (bukan rata-rata statis).
+    const sumP = (pHome + pAway) || 1;
+    const expHome = Math.max(0.3, avgGoals * (pHome / sumP) * 1.15);
+    const expAway = Math.max(0.3, avgGoals * (pAway / sumP) * 1.15);
+    const rngSeed = String(match.MatchID || '') + '|' + String(match.HomeTeamID || '') + '|' + String(match.AwayTeamID || '');
+    const rng = this.mulberry32(this.hashSeed(rngSeed));
+    const ftHome = this.poisson(expHome, rng);
+    const ftAway = this.poisson(expAway, rng);
+    // HT ~ 45% dari ekspektasi gol FT
+    const htHome = this.poisson(expHome * 0.45, rng);
+    const htAway = this.poisson(expAway * 0.45, rng);
 
     return {
       home: this.teamLabel(home), away: this.teamLabel(away),
@@ -204,10 +211,46 @@ QSCORER.engine = {
     return { home: ih / s, draw: id / s, away: ia / s };
   },
 
-  score(str, home) {
+score(str, home) {
     if (!str) return 0;
     const p = String(str).split(':');
     if (p.length < 2) return 0;
     return home ? (parseInt(p[0]) || 0) : (parseInt(p[1]) || 0);
+  },
+
+  // String → seed angka (deterministik)
+  hashSeed(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  },
+
+  // PRNG mulberry32 (deterministik)
+  mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  },
+
+  // Poisson sampling (Knuth) memakai PRNG tertentu
+  poisson(lambda, rng) {
+    const L = Math.max(0, lambda);
+    if (L > 12) { // normal approximation untuk lambda besar
+      return Math.max(0, Math.round(L + Math.sqrt(L) * (rng() + rng() + rng() - 1.5)));
+    }
+    let k = 0;
+    let p = 1;
+    const e = Math.exp(-L);
+    do {
+      k++;
+      p *= rng();
+    } while (p > e);
+    return k - 1;
   }
 };
