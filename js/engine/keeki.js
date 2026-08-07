@@ -62,12 +62,15 @@ const leaguesAll = data.leagues || [];
     const ouLine = odds && odds.OU_Line !== '' && odds.OU_Line !== undefined ? parseFloat(odds.OU_Line) : 2.5;
     const hdpHomeLine = odds && odds.HDPHome !== '' && odds.HDPHome !== undefined ? odds.HDPHome : -0.5;
     const hdpAwayLine = odds && odds.HDPAway !== '' && odds.HDPAway !== undefined ? odds.HDPAway : 0.5;
-    const avgGoals = (goal.avgTotal + lgPat.avgGoals) / 2;
-    // Blend statistik avg-goals dengan implied odds over/under untuk UNDER/OVER seimbang
-    const statOverProb = this.overProbability(avgGoals);
+const avgGoals = (goal.avgTotal + lgPat.avgGoals) / 2;
+    // Probabilitas OVER/UNDER JUJUR memakai distribusi Poisson total gol sesuai line.
+    // Statistik memberi P(over) realistis (mis. 2.5 gol → over 2.5 ≈ 48%, bukan 86%),
+    // lalu di-blend kecil dengan implied odds agar kadang OVER kadang UNDER.
+    const statOverProb = this.overProbability(avgGoals, ouLine);
     const impliedOverProb = this.oddsValueOU(odds);
-    const overSignificance = 0.5;
-    const overProb = Math.min(0.9, Math.max(0.1, statOverProb * (1 - overSignificance) + impliedOverProb * overSignificance));
+    const overSignificance = 0.35;
+    let overProb = statOverProb * (1 - overSignificance) + impliedOverProb * overSignificance;
+    overProb = Math.min(0.92, Math.max(0.08, overProb));
 
 // Prediksi Skor HT & FT (Blueprint #8) — Poisson + seeded RNG (deterministik per match)
     // Expected goals memakai kekuatan relatif tim (bukan rata-rata statis).
@@ -104,24 +107,33 @@ const leaguesAll = data.leagues || [];
     else if (htHome < htAway) htHDP = 'AWAY';
     else htHDP = 'DRAW (PUSH)';
 
-    // --- Confidence per market (dihitung terpisah, bukan satu nilai sama rata) ---
+// --- Confidence per market, disesuaikan dengan LEARNING (akurasi historis per market) ---
+    // Engine BELAJAR: market yang sering benar → naik, yang sering salah → turun.
+    // Ini membuat rekomendasi TIDAK MONOTON (kadang 1X2, HDP, O/U, atau Odd/Even).
     const oeProb = this.oddsValueOE(odds); // implied prob ODD dari odds
-    // 1X2: peluang dari probabilitas home/draw/away
-    const cFT1x2 = Math.round((ft1x2 === 'HOME' ? pHome : ft1x2 === 'AWAY' ? pAway : pDraw) * 1000) / 10;
-    const cHT1x2 = Math.round((ht1x2 === 'HOME' ? pHome : ht1x2 === 'AWAY' ? pAway : pDraw) * 1000) / 10;
-    // HDP: pada draw → PUSH (50, modal kembali); selain itu peluang tim terkait + penyesuaian garis
-    const cFTHDP = ftHDP === 'DRAW (PUSH)' ? 50 : Math.round(Math.min(88, Math.max(50, (ft1x2 === 'HOME' ? pHome : pAway) * 100 + 6)) * 10) / 10;
-    const cHTHDP = htHDP === 'DRAW (PUSH)' ? 50 : Math.round(Math.min(88, Math.max(50, (ht1x2 === 'HOME' ? pHome : pAway) * 100 + 4)) * 10) / 10;
-    // O/U: FT pakai overProb (blend statistik + odds), HT pakai rasio HT over 0.5 dari data
-    const cFTOU = ftOU.indexOf('OVER') === 0 ? Math.round(overProb * 1000) / 10 : Math.round((1 - overProb) * 1000) / 10;
+    const acc = this.marketAccuracy(learning); // {FT_1X2: 0.6, FT_OU: 0.4, ...}
+    // blend: 60% probabilitas dasar + 40% akurasi historis market tsb
+    const adj = (baseProb, market) => {
+      const a = acc[market] != null ? acc[market] : 0.5;
+      return Math.round((baseProb * 0.6 + a * 100 * 0.4) * 10) / 10;
+    };
+    // 1X2: peluang dari probabilitas home/draw/away (jujur — draw ya DRAW, bukan paksa home)
+    const cFT1x2 = adj((ft1x2 === 'HOME' ? pHome : ft1x2 === 'AWAY' ? pAway : pDraw) * 100, 'FT_1X2');
+    const cHT1x2 = adj((ht1x2 === 'HOME' ? pHome : ht1x2 === 'AWAY' ? pAway : pDraw) * 100, 'HT_1X2');
+    // HDP: pada draw → PUSH (50); selain itu peluang tim terkait (jujur, tidak selalu home)
+    const cFTHDP = ftHDP === 'DRAW (PUSH)' ? 50 : adj(Math.min(88, Math.max(50, (ft1x2 === 'HOME' ? pHome : pAway) * 100 + 4)), 'FT_HDP');
+    const cHTHDP = htHDP === 'DRAW (PUSH)' ? 50 : adj(Math.min(88, Math.max(50, (ht1x2 === 'HOME' ? pHome : pAway) * 100 + 3)), 'HT_HDP');
+    // O/U: pakai overProb Poisson yg jujur → kadang OVER, kadang UNDER
+    const cFTOU = ftOU.indexOf('OVER') === 0 ? adj(overProb * 100, 'FT_OU') : adj((1 - overProb) * 100, 'FT_OU');
     const htOverRate = htPat.htOver;
-    const cHTOU = htOU.indexOf('OVER') === 0 ? Math.round(htOverRate * 1000) / 10 : Math.round((1 - htOverRate) * 1000) / 10;
+    const cHTOU = htOU.indexOf('OVER') === 0 ? adj(htOverRate * 100, 'HT_OU') : adj((1 - htOverRate) * 100, 'HT_OU');
     // Odd/Even: implied odds (EVEN = 1 - prob ODD)
-    const cFTOE = ftOE === 'EVEN' ? Math.round((1 - oeProb) * 1000) / 10 : Math.round(oeProb * 1000) / 10;
+    const cFTOE = ftOE === 'EVEN' ? adj((1 - oeProb) * 100, 'FT_OddEven') : adj(oeProb * 100, 'FT_OddEven');
     // Probabilitas skor persis (Poisson) — agar tidak selalu 0%
     const scoreProb = Math.round(this.poissonProb(ftHome, ftAway, expHome, expAway) * 100);
 
-    // --- Rekomendasi: pilih confidence tertinggi dari semua market (selalu konsisten dengan skor) ---
+    // --- Rekomendasi: pilih confidence tertinggi dari semua market (1X2, HDP, O/U, Odd/Even) ---
+    // Karena confidence tiap market berbeda & dipengaruhi learning, pilihan jadi bervariasi.
     const candidates = [
       { label: 'FT 1X2', value: ft1x2, prob: cFT1x2 },
       { label: 'FT HDP', value: ftHDP, prob: cFTHDP },
@@ -301,9 +313,60 @@ leaguePattern(league, results, matches) {
     return io / s;
   },
 
-  overProbability(avgGoals) {
-    const pOver = 1 - Math.exp(-avgGoals * 0.8);
-    return Math.min(0.9, Math.max(0.1, pOver));
+// Probabilitas OVER/UNDER yang JUJUR memakai distribusi Poisson total gol.
+  // Ini menggantikan rumus eksponensial lama yang selalu memberikan OVER besar
+  // (contoh: avgGoals 2.5 → OVER 2.5 hanya ~48%, bukan 86%).
+  overProbability(avgGoals, line) {
+    const lam = avgGoals;
+    const L = (line != null && !isNaN(line) && line > 0) ? parseFloat(line) : 2.5;
+    // P(total >= L) dgn Poisson: 1 - P(total <= L-1) ; untuk L pecahan (.25/.75)
+    // kita hitung peluang total gol >= ceil(L) untuk garis .25/.75 superior/inferior.
+    let p = 0;
+    if (L % 1 === 0.25 || L % 1 === 0.75) {
+      // garis .25/.75: OVER menang penuh jika total >= ceil(L), setengah jika = floor
+      const floor = Math.floor(L), ceil = Math.floor(L) + 1;
+      const pFloor = this.poissonCdf(floor, lam);
+      const pCeil = this.poissonCdf(ceil - 1, lam);
+      p = (1 - pCeil) + 0.5 * (pCeil - pFloor);
+    } else {
+      // garis penuh / .5: OVER menang jika total >= L
+      const kReq = (L % 1 === 0) ? L : Math.floor(L) + 1;
+      p = 1 - this.poissonCdf(kReq - 1, lam);
+    }
+    return Math.min(0.92, Math.max(0.08, p));
+  },
+
+  // CDF Poisson: P(X <= k) untuk mean lam
+  poissonCdf(k, lam) {
+    let sum = 0;
+    for (let i = 0; i <= k; i++) sum += this.poissonPmf(i, lam);
+    return sum;
+  },
+  // PMF Poisson: P(X = k)
+  poissonPmf(k, lam) {
+    if (k < 0) return 0;
+    const e = Math.exp(-lam);
+    let fact = 1;
+    for (let i = 1; i <= k; i++) fact *= i;
+    return (Math.pow(lam, k) * e) / fact;
+  },
+
+  // Akurasi historis per market dari data Learning — ini inti "sistem belajar".
+  // Semakin banyak data validasi, semakin akurat penyesuaian confidence per market.
+  marketAccuracy(learning) {
+    const byMarket = {};
+    (learning || []).forEach(l => {
+      const m = l.Market || 'FT_1X2';
+      if (!byMarket[m]) byMarket[m] = { total: 0, correct: 0 };
+      byMarket[m].total++;
+      if (l.Correct === true || l.Correct === 'TRUE' || l.Correct === 'true') byMarket[m].correct++;
+    });
+    const out = {};
+    Object.keys(byMarket).forEach(m => {
+      const b = byMarket[m];
+      out[m] = b.total > 0 ? b.correct / b.total : 0.5;
+    });
+    return out;
   },
 
   // Pola per klub (home/away tendency + over/under tendency) — engine belajar dari data
