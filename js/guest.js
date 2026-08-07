@@ -340,13 +340,25 @@ QSCORER.ui.toast('Hasil Prediksi Selesai', 'success');
     }
   }
 
-  function predResultHtml(match, p, hN, aN) {
+function predResultHtml(match, p, hN, aN) {
     const conf = Number(p.Confidence) || 0;
-    const market = [
-      ['FT 1X2', p.FT_1X2, 'blue'], ['FT HDP', p.FT_HDP, 'red'],
-      ['FT O/U', p.FT_OU, 'green'], ['FT Odd/Even', p.FT_OddEven, 'gold'],
-      ['HT 1X2', p.HT_1X2, 'blue'], ['HT HDP', p.HT_HDP, 'red'], ['HT O/U', p.HT_OU, 'green']
+    const prob = p.probabilities || {};
+    // markets berisi per-market confidence (dari backend); fallback ke mapping lama
+    const mkt = (p.markets && p.markets.length) ? p.markets : [
+      { label: 'FT 1X2', value: p.FT_1X2, prob: conf },
+      { label: 'FT HDP', value: p.FT_HDP, prob: conf },
+      { label: 'FT O/U', value: p.FT_OU, prob: conf },
+      { label: 'FT Odd/Even', value: p.FT_OddEven, prob: conf },
+      { label: 'HT 1X2', value: p.HT_1X2, prob: conf },
+      { label: 'HT HDP', value: p.HT_HDP, prob: conf },
+      { label: 'HT O/U', value: p.HT_OU, prob: conf }
     ];
+    const color = (label) => {
+      if (label.indexOf('HDP') >= 0) return 'red';
+      if (label.indexOf('O/U') >= 0) return 'green';
+      if (label.indexOf('Odd/Even') >= 0) return 'gold';
+      return 'blue';
+    };
     return `
       <div class="pred-hero">
         <div class="badge badge-blue"><i class="fa-solid fa-arrow-up-right-dots"></i> Rekomendasi Engine</div>
@@ -358,15 +370,16 @@ QSCORER.ui.toast('Hasil Prediksi Selesai', 'success');
         <div class="score-box"><div class="s-label">Prediksi Skor HT</div><div class="s-val blue">${QSCORER.util.esc(p.HTScore || '0-0')}</div></div>
         <div class="score-box"><div class="s-label">Prediksi Skor FT</div><div class="s-val green">${QSCORER.util.esc(p.FTScore || '0-0')}</div></div>
       </div>
+      <div style="margin-top:10px;text-align:center;color:var(--muted);font-size:.82rem">Probabilitas terjadinya skor <b>${QSCORER.util.esc(p.FTScore || '0-0')}</b> ≈ <b>${p.ScoreProb != null ? p.ScoreProb : 0}%</b></div>
       <div class="pred-market" style="margin-top:20px">
-        ${market.map(ms => `<div class="market-box"><div class="m-name">${ms[0]}</div><div class="m-val ${ms[2]}">${QSCORER.util.esc(ms[1])}</div></div>`).join('')}
+        ${mkt.map(ms => `<div class="market-box"><div class="m-name">${QSCORER.util.esc(ms.label)}</div><div class="m-val ${color(ms.label)}">${QSCORER.util.esc(ms.value)}</div><div class="m-conf"><div class="progress" style="height:6px"><div class="progress-bar ${Number(ms.prob) >= 55 ? 'green' : 'red'}" style="width:${Math.min(100, Number(ms.prob) || 0)}%"></div></div><div style="font-size:.72rem;font-weight:700;margin-top:3px">${Math.round(Number(ms.prob) || 0)}%</div></div></div>`).join('')}
       </div>
       <div style="margin-top:20px">
         <div class="card-title" style="font-size:.95rem"><i class="fa-solid fa-chart-pie"></i> Probabilitas Home · Draw · Away</div>
         <div class="pred-market" style="grid-template-columns:1fr 1fr 1fr">
-          <div class="market-box"><div class="m-name">Home</div><div class="m-val green">${p.probabilities ? p.probabilities.home : 0}%</div></div>
-          <div class="market-box"><div class="m-name">Draw</div><div class="m-val">${p.probabilities ? p.probabilities.draw : 0}%</div></div>
-          <div class="market-box"><div class="m-name">Away</div><div class="m-val red">${p.probabilities ? p.probabilities.away : 0}%</div></div>
+          <div class="market-box"><div class="m-name">Home</div><div class="m-val green">${prob.home || 0}%</div></div>
+          <div class="market-box"><div class="m-name">Draw</div><div class="m-val">${prob.draw || 0}%</div></div>
+          <div class="market-box"><div class="m-name">Away</div><div class="m-val red">${prob.away || 0}%</div></div>
         </div>
       </div>`;
   }

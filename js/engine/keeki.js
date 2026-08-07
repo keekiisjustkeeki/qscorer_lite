@@ -69,23 +69,6 @@ const leaguesAll = data.leagues || [];
     const overSignificance = 0.5;
     const overProb = Math.min(0.9, Math.max(0.1, statOverProb * (1 - overSignificance) + impliedOverProb * overSignificance));
 
-    const ft1x2 = pHome >= pDraw && pHome >= pAway ? 'HOME' : (pAway >= pDraw ? 'AWAY' : 'DRAW');
-    const ftOU = overProb >= 0.5 ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
-    // Odd/Even: blend default dengan implied odds
-    const oddProb = Math.min(0.9, Math.max(0.1, 0.55 * 0.5 + this.oddsValueOE(odds) * 0.5));
-    const ftOE = oddProb >= 0.5 ? 'ODD' : 'EVEN';
-    const hdpHome = pHome - pAway;
-    const ftHDP = hdpHome >= 0 ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
-    const ht1x2 = pHome >= 0.34 ? 'HOME' : (pAway >= 0.34 ? 'AWAY' : 'DRAW');
-    const htOU = avgGoals >= 0.8 ? 'OVER 0.5' : 'UNDER 0.5';
-    const htHDP = hdpHome >= 0 ? 'HOME' : 'AWAY';
-
-    // --- Varied recommendation: pilih peluang tertinggi dari semua market ---
-    const candidates = this.buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals);
-    const best = candidates[0];
-    const rec = best.pick;
-    const confidence = Math.round(best.prob);
-
 // Prediksi Skor HT & FT (Blueprint #8) — Poisson + seeded RNG (deterministik per match)
     // Expected goals memakai kekuatan relatif tim (bukan rata-rata statis).
     const sumP = (pHome + pAway) || 1;
@@ -98,6 +81,30 @@ const leaguesAll = data.leagues || [];
     // HT ~ 45% dari ekspektasi gol FT
     const htHome = this.poisson(expHome * 0.45, rng);
     const htAway = this.poisson(expAway * 0.45, rng);
+
+    // --- Semua market diturunkan dari prediksi skor agar konsisten dengan skor ---
+    // FT 1X2 dari skor FT
+    const ft1x2 = ftHome > ftAway ? 'HOME' : (ftHome < ftAway ? 'AWAY' : 'DRAW');
+    // HT 1X2 dari skor HT
+    const ht1x2 = htHome > htAway ? 'HOME' : (htHome < htAway ? 'AWAY' : 'DRAW');
+    // FT Odd/Even dari total gol FT
+    const ftOE = ((ftHome + ftAway) % 2 === 0) ? 'EVEN' : 'ODD';
+    // FT O/U dari total gol vs line
+    const ftOU = (ftHome + ftAway) >= ouLine ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
+    // HT O/U dari total gol HT
+    const htOU = (htHome + htAway) >= 1 ? 'OVER 0.5' : 'UNDER 0.5';
+    // FT HDP: draw skor → AWAY +0.25 (home kalah voor tipis)
+    const ftHDP = ftHome > ftAway ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
+    // HT HDP: draw skor HT → AWAY
+    const htHDP = htHome > htAway ? 'HOME' : 'AWAY';
+    // Odd/Even prob (hanya untuk kandidat rekomendasi)
+    const oddProb = ftOE === 'EVEN' ? 0.5 : 0.5;
+
+    // --- Varied recommendation: pilih peluang tertinggi dari semua market ---
+    const candidates = this.buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals);
+    const best = candidates[0];
+    const rec = best.pick;
+    const confidence = Math.round(best.prob);
 
     return {
       home: this.teamLabel(home), away: this.teamLabel(away),

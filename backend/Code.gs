@@ -706,7 +706,6 @@ var lgPat = leaguePattern(league, results, teams, leagues);
   var pHome = homeScore/total;
   var pDraw = drawScore/total;
   var pAway = awayScore/total;
-  var ft1x2 = pHome >= pDraw && pHome >= pAway ? 'HOME' : (pAway >= pDraw ? 'AWAY' : 'DRAW');
   // --- Exact lines from input odds (tidak di-hardcode) ---
   var ouLine = odds && odds.OU_Line !== '' && odds.OU_Line !== undefined ? parseFloat(odds.OU_Line) : 2.5;
   if(isNaN(ouLine) || ouLine <= 0) ouLine = 2.5;
@@ -719,34 +718,66 @@ var lgPat = leaguePattern(league, results, teams, leagues);
   var overSignificance = 0.5; // semakin banyak learning, semakin percaya odds
   var overProb = statOverProb * (1 - overSignificance) + impliedOverProb * overSignificance;
   overProb = Math.min(0.9, Math.max(0.1, overProb));
-  var ftOU = overProb >= 0.5 ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
-  var oddProb = Math.min(0.9, Math.max(0.1, 0.55));
-  var oddImplied = oddsValueOE(odds);
-  oddProb = oddProb * 0.5 + oddImplied * 0.5;
-  var ftOE = oddProb >= 0.5 ? 'ODD' : 'EVEN';
-  var hdpHome = pHome - pAway;
-  var ftHDP = hdpHome >= 0 ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
-  var ht1x2 = pHome >= 0.34 ? 'HOME' : (pAway >= 0.34 ? 'AWAY' : 'DRAW');
-  var htOU = avgGoals >= 0.8 ? 'OVER 0.5' : 'UNDER 0.5';
-  var htHDP = hdpHome >= 0 ? 'HOME' : 'AWAY';
-  // --- Varied recommendation: pilih peluang tertinggi dari semua market ---
-  var candidates = buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals);
-  var best = candidates[0];
+
+  // --- Prediksi skor lebih dulu agar market konsisten dengan skor ---
+  var htHome = Math.max(0.3, avgGoals * (pHome / ((pHome + pAway) || 1)) * 0.45);
+  var htAway = Math.max(0.3, avgGoals * (pAway / ((pHome + pAway) || 1)) * 0.45);
+  var ftHome = Math.max(0.3, avgGoals * (pHome / ((pHome + pAway) || 1)));
+  var ftAway = Math.max(0.3, avgGoals * (pAway / ((pHome + pAway) || 1)));
+  var rHT = Math.round(htHome) + '-' + Math.round(htAway);
+  var rFT = Math.round(ftHome) + '-' + Math.round(ftAway);
+  var sftH = Math.round(ftHome), sftA = Math.round(ftAway);
+  var shtH = Math.round(htHome), shtA = Math.round(htAway);
+
+  // --- Semua market diturunkan dari prediksi skor ---
+  var ft1x2 = sftH > sftA ? 'HOME' : (sftH < sftA ? 'AWAY' : 'DRAW');
+  var ht1x2 = shtH > shtA ? 'HOME' : (shtH < shtA ? 'AWAY' : 'DRAW');
+  var ftOE = ((sftH + sftA) % 2 === 0) ? 'EVEN' : 'ODD';
+  var ftOU = (sftH + sftA) >= ouLine ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
+  var htOU = (shtH + shtA) >= 1 ? 'OVER 0.5' : 'UNDER 0.5';
+  var ftHDP = sftH > sftA ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
+  var htHDP = shtH > shtA ? 'HOME' : 'AWAY';
+
+  // --- Confidence per market ---
+  function cap(x){ return Math.min(0.98, Math.max(0.34, x)); }
+  var c1x2 = 100*(ft1x2==='HOME'?pHome:(ft1x2==='AWAY'?pAway:pDraw));
+  var cHandicap = ft1x2==='HOME' ? 100*cap(pHome) : 100*cap(pAway);
+  var cOU = ftOU.indexOf('OVER')===0 ? overProb*100 : (1-overProb)*100;
+  var cOE = ftOE==='EVEN' ? oddsValueOE(odds)*100 : (1-oddsValueOE(odds))*100;
+  var cHT1x2 = 100*(ht1x2==='HOME'?pHome:(ht1x2==='AWAY'?pAway:pDraw));
+  var cHTHDP = htHDP==='HOME' ? 100*cap(pHome) : 100*cap(pAway);
+  var cHTOU = htOU.indexOf('OVER')===0 ? 55 : 45;
+  // probabilitas skor (Poisson approx)
+  function poissonP(k, lam){ if(k<0)return 0; var e=Math.exp(-lam); var f=1; for(var i=1;i<=k;i++)f*=i; return (Math.pow(lam,k)*e)/f; }
+  var scoreProb = poissonP(sftH, ftHome) * poissonP(sftA, ftAway);
+
+  // --- Rekomendasi: pilih confidence tertinggi dari semua market ---
+  var candidateArr = [
+    {label:'FT 1X2', pick:ft1x2, prob:c1x2},
+    {label:'FT HDP', pick:ftHDP, prob:cHandicap},
+    {label:'FT O/U', pick:ftOU, prob:cOU},
+    {label:'FT Odd/Even', pick:ftOE, prob:cOE},
+    {label:'HT 1X2', pick:ht1x2, prob:cHT1x2},
+    {label:'HT HDP', pick:htHDP, prob:cHTHDP},
+    {label:'HT O/U', pick:htOU, prob:cHTOU}
+  ];
+  candidateArr.sort(function(a,b){ return b.prob - a.prob; });
+  var best = candidateArr[0];
   var rec = best.pick;
   var confidence = Math.round(best.prob);
-  var htHome = Math.round(pHome * avgGoals * 0.45);
-  var htAway = Math.round(pAway * avgGoals * 0.45);
-  var ftHome = Math.round(pHome * avgGoals);
-  var ftAway = Math.round(pAway * avgGoals);
-  var predHT = htHome + '-' + htAway;
-  var predFT = ftHome + '-' + ftAway;
+  var markets = candidateArr.map(function(c){
+    return {label:c.label, value:c.pick, prob: Math.round(c.prob)};
+  });
   return {
     FT_1X2: ft1x2, FT_HDP: ftHDP, FT_OU: ftOU, FT_OddEven: ftOE,
     HT_1X2: ht1x2, HT_HDP: htHDP, HT_OU: htOU,
     Confidence: confidence,
     Recommendation: rec,
-    HTScore: predHT,
-    FTScore: predFT,
+    RecommendationLabel: best.label,
+    HTScore: rHT,
+    FTScore: rFT,
+    ScoreProb: Math.round(scoreProb*100),
+    markets: markets,
     probabilities: {home: Math.round(pHome*1000)/10, draw: Math.round(pDraw*1000)/10, away: Math.round(pAway*1000)/10, over: Math.round(overProb*100)}
   };
 }
