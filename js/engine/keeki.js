@@ -93,25 +93,58 @@ const leaguesAll = data.leagues || [];
     const ftOU = (ftHome + ftAway) >= ouLine ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
     // HT O/U dari total gol HT
     const htOU = (htHome + htAway) >= 1 ? 'OVER 0.5' : 'UNDER 0.5';
-    // FT HDP: draw skor → AWAY +0.25 (home kalah voor tipis)
-    const ftHDP = ftHome > ftAway ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
-    // HT HDP: draw skor HT → AWAY
-    const htHDP = htHome > htAway ? 'HOME' : 'AWAY';
-    // Odd/Even prob (hanya untuk kandidat rekomendasi)
-    const oddProb = ftOE === 'EVEN' ? 0.5 : 0.5;
+    // FT HDP: skor draw → PUSH (bukan dipaksa AWAY)
+    let ftHDP;
+    if (ftHome > ftAway) ftHDP = 'HOME ' + hdpHomeLine;
+    else if (ftHome < ftAway) ftHDP = 'AWAY ' + hdpAwayLine;
+    else ftHDP = 'DRAW (PUSH)';
+    // HT HDP: skor draw HT → PUSH
+    let htHDP;
+    if (htHome > htAway) htHDP = 'HOME';
+    else if (htHome < htAway) htHDP = 'AWAY';
+    else htHDP = 'DRAW (PUSH)';
 
-    // --- Varied recommendation: pilih peluang tertinggi dari semua market ---
-    const candidates = this.buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals);
+    // --- Confidence per market (dihitung terpisah, bukan satu nilai sama rata) ---
+    const oeProb = this.oddsValueOE(odds); // implied prob ODD dari odds
+    // 1X2: peluang dari probabilitas home/draw/away
+    const cFT1x2 = Math.round((ft1x2 === 'HOME' ? pHome : ft1x2 === 'AWAY' ? pAway : pDraw) * 1000) / 10;
+    const cHT1x2 = Math.round((ht1x2 === 'HOME' ? pHome : ht1x2 === 'AWAY' ? pAway : pDraw) * 1000) / 10;
+    // HDP: pada draw → PUSH (50, modal kembali); selain itu peluang tim terkait + penyesuaian garis
+    const cFTHDP = ftHDP === 'DRAW (PUSH)' ? 50 : Math.round(Math.min(88, Math.max(50, (ft1x2 === 'HOME' ? pHome : pAway) * 100 + 6)) * 10) / 10;
+    const cHTHDP = htHDP === 'DRAW (PUSH)' ? 50 : Math.round(Math.min(88, Math.max(50, (ht1x2 === 'HOME' ? pHome : pAway) * 100 + 4)) * 10) / 10;
+    // O/U: FT pakai overProb (blend statistik + odds), HT pakai rasio HT over 0.5 dari data
+    const cFTOU = ftOU.indexOf('OVER') === 0 ? Math.round(overProb * 1000) / 10 : Math.round((1 - overProb) * 1000) / 10;
+    const htOverRate = htPat.htOver;
+    const cHTOU = htOU.indexOf('OVER') === 0 ? Math.round(htOverRate * 1000) / 10 : Math.round((1 - htOverRate) * 1000) / 10;
+    // Odd/Even: implied odds (EVEN = 1 - prob ODD)
+    const cFTOE = ftOE === 'EVEN' ? Math.round((1 - oeProb) * 1000) / 10 : Math.round(oeProb * 1000) / 10;
+    // Probabilitas skor persis (Poisson) — agar tidak selalu 0%
+    const scoreProb = Math.round(this.poissonProb(ftHome, ftAway, expHome, expAway) * 100);
+
+    // --- Rekomendasi: pilih confidence tertinggi dari semua market (selalu konsisten dengan skor) ---
+    const candidates = [
+      { label: 'FT 1X2', value: ft1x2, prob: cFT1x2 },
+      { label: 'FT HDP', value: ftHDP, prob: cFTHDP },
+      { label: 'FT O/U', value: ftOU, prob: cFTOU },
+      { label: 'FT Odd/Even', value: ftOE, prob: cFTOE },
+      { label: 'HT 1X2', value: ht1x2, prob: cHT1x2 },
+      { label: 'HT HDP', value: htHDP, prob: cHTHDP },
+      { label: 'HT O/U', value: htOU, prob: cHTOU }
+    ].sort((a, b) => b.prob - a.prob);
     const best = candidates[0];
-    const rec = best.pick;
+    const rec = best.value;
     const confidence = Math.round(best.prob);
+    const markets = candidates.map(c => ({ label: c.label, value: c.value, prob: Math.round(c.prob) }));
 
     return {
       home: this.teamLabel(home), away: this.teamLabel(away),
       FT_1X2: ft1x2, FT_HDP: ftHDP, FT_OU: ftOU, FT_OddEven: ftOE,
       HT_1X2: ht1x2, HT_HDP: htHDP, HT_OU: htOU,
       Confidence: confidence, Recommendation: rec,
+      RecommendationLabel: best.label,
       HTScore: htHome + '-' + htAway, FTScore: ftHome + '-' + ftAway,
+      ScoreProb: scoreProb,
+      markets: markets,
       probabilities: { home: Math.round(pHome * 1000) / 10, draw: Math.round(pDraw * 1000) / 10, away: Math.round(pAway * 1000) / 10, over: Math.round(overProb * 100) }
     };
   },
@@ -126,30 +159,32 @@ const leaguesAll = data.leagues || [];
   },
   teamLabel(t) { return t.TeamName || 'Unknown'; },
 
-  formAnalysis(home, away, results, matches) {
-    let hw = 0, hm = 0, aw = 0, am = 0;
+formAnalysis(home, away, results, matches) {
+    let hw = 0, hm = 0, hd = 0, aw = 0, am = 0, ad = 0;
     for (const r of results) {
       const m = matches.find(x => String(x.MatchID) === String(r.MatchID));
       if (!m) continue;
       const hs = this.score(r.FTScore, true), as = this.score(r.FTScore, false);
-      if (String(m.HomeTeamID) === String(home.TeamID)) { hm++; if (hs > as) hw++; }
-      if (String(m.AwayTeamID) === String(home.TeamID)) { hm++; if (as > hs) hw++; }
-      if (String(m.HomeTeamID) === String(away.TeamID)) { am++; if (hs > as) aw++; }
-      if (String(m.AwayTeamID) === String(away.TeamID)) { am++; if (as > hs) aw++; }
+      if (String(m.HomeTeamID) === String(home.TeamID)) { hm++; if (hs > as) hw++; else if (hs === as) hd++; }
+      if (String(m.AwayTeamID) === String(home.TeamID)) { hm++; if (as > hs) hw++; else if (as === hs) hd++; }
+      if (String(m.HomeTeamID) === String(away.TeamID)) { am++; if (hs > as) aw++; else if (hs === as) ad++; }
+      if (String(m.AwayTeamID) === String(away.TeamID)) { am++; if (as > hs) aw++; else if (as === hs) ad++; }
     }
-    return { home: hm ? hw / hm : 0.5, away: am ? aw / am : 0.5, draw: 0.25 };
+    const draw = hm + am ? (hd + ad) / (hm + am) : 0.25;
+    return { home: hm ? hw / hm : 0.5, away: am ? aw / am : 0.5, draw: Math.min(0.45, draw) };
   },
 
   homeAway(match, results, matches) {
-    let hw = 0, hm = 0, aw = 0, am = 0;
+    let hw = 0, hm = 0, hd = 0, aw = 0, am = 0, ad = 0;
     for (const r of results) {
       const m = matches.find(x => String(x.MatchID) === String(r.MatchID));
       if (!m) continue;
       const hs = this.score(r.FTScore, true), as = this.score(r.FTScore, false);
-      if (String(m.HomeTeamID) === String(match.HomeTeamID)) { hm++; if (hs > as) hw++; }
-      if (String(m.AwayTeamID) === String(match.AwayTeamID)) { am++; if (as > hs) aw++; }
+      if (String(m.HomeTeamID) === String(match.HomeTeamID)) { hm++; if (hs > as) hw++; else if (hs === as) hd++; }
+      if (String(m.AwayTeamID) === String(match.AwayTeamID)) { am++; if (as > hs) aw++; else if (as === hs) ad++; }
     }
-    return { home: hm ? hw / hm : 0.5, away: am ? aw / am : 0.5, draw: 0.25 };
+    const draw = hm + am ? (hd + ad) / (hm + am) : 0.25;
+    return { home: hm ? hw / hm : 0.5, away: am ? aw / am : 0.5, draw: Math.min(0.45, draw) };
   },
 
   headToHead(match, results, matches) {
@@ -170,22 +205,28 @@ const leaguesAll = data.leagues || [];
   },
 
   goalPattern(results) {
-    let total = 0, goals = 0;
+    let total = 0, goals = 0, draw = 0;
     for (const r of results) {
       total++;
-      goals += this.score(r.FTScore, true) + this.score(r.FTScore, false);
+      const hs = this.score(r.FTScore, true), as = this.score(r.FTScore, false);
+      goals += hs + as;
+      if (hs === as) draw++;
     }
-    return { avgTotal: total ? goals / total : 1.5, home: 0.5, draw: 0.25 };
+    const drawRate = total ? draw / total : 0.25;
+    return { avgTotal: total ? goals / total : 1.5, home: 0.5, draw: Math.min(0.45, drawRate) };
   },
 
   htPattern(results) {
-    let htGoals = 0, total = 0;
+    let htGoals = 0, total = 0, htDraw = 0;
     for (const r of (results || [])) {
-      htGoals += this.score(r.HTScore, true) + this.score(r.HTScore, false);
+      const hs = this.score(r.HTScore, true), as = this.score(r.HTScore, false);
+      htGoals += hs + as;
       total++;
+      if (hs === as) htDraw++;
     }
     const avg = total ? htGoals / total : 0.6;
-    return { home: 0.5, away: 0.5, draw: 0.3, htOver: avg > 0.5 ? 0.5 : 0.3 };
+    const draw = total ? htDraw / total : 0.3;
+    return { home: 0.5, away: 0.5, draw: Math.min(0.5, draw), htOver: avg > 0.5 ? 0.5 : 0.3 };
   },
 
 leaguePattern(league, results, matches) {
@@ -340,5 +381,17 @@ score(str, home) {
       p *= rng();
     } while (p > e);
     return k - 1;
+  },
+
+  // Probabilitas Poisson untuk skor persis (home=hs, away=as) — biar ScoreProb realistis
+  poissonProb(hs, as, lamH, lamA) {
+    const f = (k, lam) => {
+      if (k < 0) return 0;
+      const e = Math.exp(-lam);
+      let fact = 1;
+      for (let i = 1; i <= k; i++) fact *= i;
+      return (Math.pow(lam, k) * e) / fact;
+    };
+    return f(hs, Math.max(0.3, lamH)) * f(as, Math.max(0.3, lamA));
   }
 };

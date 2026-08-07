@@ -329,12 +329,20 @@ let match = { MatchID: mk.matchId, LeagueID: sel.league, Date: sel.date, HomeTea
         OddOdds: sel.odds.OddOdds,
         EvenOdds: sel.odds.EvenOdds
       });
-      if (odds.status === 'error') throw new Error(odds.message);
-      // Run engine
+if (odds.status === 'error') throw new Error(odds.message);
+      // Run engine (simpan prediksi di backend sebagai baseline/learning)
       const res = await QSCORER.api.runEngine(match.MatchID);
       if (res.status === 'error') throw new Error(res.message);
+      // Hitung ulang prediksi secara KONSISTEN di sisi client memakai engine KEEKI,
+      // agar semua market selaras dengan prediksi skor (1-1 → DRAW, EVEN, UNDER, dst.)
+      let pred = res.prediction;
+      try {
+        const full = await fetchData();
+        const matchObj = (full.matches || []).find(m => String(m.MatchID) === String(match.MatchID)) || match;
+        pred = QSCORER.engine.analyze(full, matchObj);
+      } catch (e) { /* fallback: tetap pakai hasil backend */ }
 QSCORER.ui.toast('Hasil Prediksi Selesai', 'success');
-      box.innerHTML = '<div style="padding:20px">' + predResultHtml(match, res.prediction, sel.hN, sel.aN);
+      box.innerHTML = '<div style="padding:20px">' + predResultHtml(match, pred, sel.hN, sel.aN);
     } catch (e) {
       box.innerHTML = '<div class="card"><h3 style="color:var(--red-400)">Gagal membuat prediksi</h3><p style="color:var(--muted)">' + QSCORER.util.esc(e.message) + '</p></div>';
     }
@@ -343,16 +351,16 @@ QSCORER.ui.toast('Hasil Prediksi Selesai', 'success');
 function predResultHtml(match, p, hN, aN) {
     const conf = Number(p.Confidence) || 0;
     const prob = p.probabilities || {};
-    // markets berisi per-market confidence (dari backend); fallback ke mapping lama
+    // markets berisi per-market confidence (dari engine); fallback ke mapping per-field
     const mkt = (p.markets && p.markets.length) ? p.markets : [
-      { label: 'FT 1X2', value: p.FT_1X2, prob: conf },
-      { label: 'FT HDP', value: p.FT_HDP, prob: conf },
-      { label: 'FT O/U', value: p.FT_OU, prob: conf },
-      { label: 'FT Odd/Even', value: p.FT_OddEven, prob: conf },
-      { label: 'HT 1X2', value: p.HT_1X2, prob: conf },
-      { label: 'HT HDP', value: p.HT_HDP, prob: conf },
-      { label: 'HT O/U', value: p.HT_OU, prob: conf }
-    ];
+      { label: 'FT 1X2', value: p.FT_1X2 },
+      { label: 'FT HDP', value: p.FT_HDP },
+      { label: 'FT O/U', value: p.FT_OU },
+      { label: 'FT Odd/Even', value: p.FT_OddEven },
+      { label: 'HT 1X2', value: p.HT_1X2 },
+      { label: 'HT HDP', value: p.HT_HDP },
+      { label: 'HT O/U', value: p.HT_OU }
+    ].map(ms => ({ label: ms.label, value: ms.value, prob: conf }));
     const color = (label) => {
       if (label.indexOf('HDP') >= 0) return 'red';
       if (label.indexOf('O/U') >= 0) return 'green';
@@ -371,7 +379,7 @@ function predResultHtml(match, p, hN, aN) {
         <div class="score-box"><div class="s-label">Prediksi Skor FT</div><div class="s-val green">${QSCORER.util.esc(p.FTScore || '0-0')}</div></div>
       </div>
       <div style="margin-top:10px;text-align:center;color:var(--muted);font-size:.82rem">Probabilitas terjadinya skor <b>${QSCORER.util.esc(p.FTScore || '0-0')}</b> ≈ <b>${p.ScoreProb != null ? p.ScoreProb : 0}%</b></div>
-      <div class="pred-market" style="margin-top:20px">
+<div class="pred-market" style="margin-top:20px">
         ${mkt.map(ms => `<div class="market-box"><div class="m-name">${QSCORER.util.esc(ms.label)}</div><div class="m-val ${color(ms.label)}">${QSCORER.util.esc(ms.value)}</div><div class="m-conf"><div class="progress" style="height:6px"><div class="progress-bar ${Number(ms.prob) >= 55 ? 'green' : 'red'}" style="width:${Math.min(100, Number(ms.prob) || 0)}%"></div></div><div style="font-size:.72rem;font-weight:700;margin-top:3px">${Math.round(Number(ms.prob) || 0)}%</div></div></div>`).join('')}
       </div>
       <div style="margin-top:20px">
