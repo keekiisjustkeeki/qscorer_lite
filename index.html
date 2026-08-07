@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="QSCORER Lite - Login">
+  <title>Login - QSCORER Lite</title>
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <div class="brand"><img class="brand-logo" src="assets/logo.png" alt="logo"><div class="brand-name">QSCORER<small>Lite</small></div></div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <div class="hero">
+      <div class="container">
+        <div class="hero-badge"><i class="fa-solid fa-robot"></i> KEEKI v2.5 Prediction Engine</div>
+        <h1>Prediksi Sepak Bola <span>Berbasis Data</span></h1>
+        <p>QSCORER Lite adalah sistem pembelajaran prediksi pertandingan sepak bola yang terus belajar dari data validasi untuk meningkatkan akurasi.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" id="btnToLogin"><i class="fa-solid fa-right-to-bracket"></i> Masuk</button>
+          <a class="btn btn-ghost" href="regist.html"><i class="fa-solid fa-user-plus"></i> Daftar</a>
+          <button class="btn btn-ghost" id="btnGuestHero"><i class="fa-solid fa-user"></i> Lanjut sebagai Guest</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="container section">
+      <div class="grid g-2col">
+        <div class="card anim-fade-up">
+          <div class="card-title"><span class="card-icon"><i class="fa-solid fa-gauge-high"></i></span> Preview Statistik</div>
+          <div id="visitorStats">
+            <div style="padding:30px;text-align:center" class="loader-wrap">Memuat statistik...</div>
+          </div>
+        </div>
+        <div class="card anim-fade-up" style="animation-delay:.1s">
+          <div class="card-title"><span class="card-icon"><i class="fa-solid fa-hand-pointer"></i></span> Preview Pertandingan & Percobaan</div>
+          <div id="visitorTrial">
+            <div style="text-align:center" class="empty">
+              <div class="empty-icon"><i class="fa-solid fa-arrows-rotate"></i></div>
+              <h3>Percobaan Prediksi 1x</h3>
+              <p>Pilih liga & tim untuk mencoba prediksi tanpa akun.</p>
+            </div>
+            <div class="form-group" style="margin-top:14px">
+              <label class="form-label">League</label>
+              <select class="input no-icon" id="visLeague"><option value="">-- Pilih Liga --</option></select>
+            </div>
+            <div class="grid g-2col" style="gap:10px">
+              <div class="form-group"><label class="form-label">Home Team</label><select class="input no-icon" id="visHome"><option value="">-- Kandang --</option></select></div>
+              <div class="form-group"><label class="form-label">Away Team</label><select class="input no-icon" id="visAway"><option value="">-- Tandang --</option></select></div>
+            </div>
+            <button class="btn btn-primary btn-block" id="visRun"><i class="fa-solid fa-bolt"></i> Jalankan Percobaan</button>
+            <div class="input-hint" style="margin-top:10px;text-align:center">Visitor hanya mendapat 1 percobaan prediksi. Prediksi tidak disimpan.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="auth-wrap">
+      <div class="card auth-card anim-zoom">
+        <div class="auth-logo"><img src="assets/logo.png" alt="logo"></div>
+        <div class="auth-title">Masuk</div>
+        <div class="auth-sub">Selamat datang kembali di QSCORER Lite</div>
+        <form id="authForm">
+          <div class="form-group"><label class="form-label">Username</label><div class="input-wrap"><i class="icon fa-solid fa-user"></i><input class="input" name="username" placeholder="Masukkan username"></div></div>
+          <div class="form-group"><label class="form-label">Password</label><div class="input-wrap"><i class="icon fa-solid fa-lock"></i><input class="input" type="password" name="password" placeholder="Masukkan password"><button type="button" class="toggle-pass"><i class="fa-solid fa-eye"></i></button></div></div>
+          <div class="error-msg" id="authError" style="display:none"></div>
+          <button class="btn btn-primary btn-block" id="authSubmit" style="margin-top:6px"><i class="fa-solid fa-right-to-bracket"></i> Masuk</button>
+        </form>
+        <div class="auth-switch">Belum punya akun? <a href="regist.html">Daftar</a></div>
+        <div class="auth-divider">atau lanjut sebagai</div>
+        <button class="btn btn-ghost btn-block" id="btnGuest"><i class="fa-solid fa-user"></i> Lanjut sebagai Guest</button>
+      </div>
+    </div>
+  </main>
+
+  <div style="position:fixed;bottom:20px;right:20px;z-index:150">
+    <button class="btn btn-red" style="border-radius:50%;width:52px;height:52px;padding:0" id="btnDonate" title="Donasi"><i class="fa-solid fa-heart"></i></button>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/engine/keeki.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>
+

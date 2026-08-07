@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="QSCORER Lite - Register">
+  <title>Register - QSCORER Lite</title>
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <div class="brand"><img class="brand-logo" src="assets/logo.png" alt="logo"><div class="brand-name">QSCORER<small>Lite</small></div></div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <div class="auth-wrap">
+      <div class="card auth-card anim-zoom">
+        <div class="auth-logo"><img src="assets/logo.png" alt="logo"></div>
+        <div class="auth-title">Buat Akun</div>
+        <div class="auth-sub">Daftar untuk mulai membuat prediksi</div>
+        <form id="authForm">
+          <div class="form-group"><label class="form-label">Username</label><div class="input-wrap"><i class="icon fa-solid fa-user"></i><input class="input" name="username" placeholder="Masukkan username"></div></div>
+          <div class="form-group"><label class="form-label">Email</label><div class="input-wrap"><i class="icon fa-solid fa-envelope"></i><input class="input" name="email" type="email" placeholder="Masukkan email"></div></div>
+          <div class="form-group"><label class="form-label">Phone</label><div class="input-wrap"><i class="icon fa-solid fa-phone"></i><input class="input" name="phone" placeholder="Masukkan nomor telepon"></div></div>
+          <div class="form-group"><label class="form-label">Password</label><div class="input-wrap"><i class="icon fa-solid fa-lock"></i><input class="input" type="password" name="password" id="regPassword" placeholder="Minimal 8 karakter huruf & angka"><button type="button" class="toggle-pass"><i class="fa-solid fa-eye"></i></button></div><div class="pw-strength" id="pwStrength"><span></span><span></span><span></span><span></span></div><div class="input-hint">Kombinasi huruf dan angka. Contoh: qscorer88</div></div>
+          <div class="error-msg" id="authError" style="display:none"></div>
+          <button class="btn btn-primary btn-block" id="authSubmit" style="margin-top:6px"><i class="fa-solid fa-user-plus"></i> Daftar</button>
+        </form>
+        <div class="auth-switch">Sudah punya akun? <a href="index.html">Masuk</a></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/register.js"></script>
+</body>
+</html>
