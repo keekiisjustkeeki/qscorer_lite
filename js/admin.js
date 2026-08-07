@@ -100,24 +100,43 @@
       const res = await QSCORER.api.getUsers();
       if (res.status === 'error') throw new Error(res.message);
       const users = res.data || [];
-      const rows = users.map(u => `<tr>
-        <td>${QSCORER.util.esc(u.UserID)}</td><td><b>${QSCORER.util.esc(u.Username)}</b></td><td>${QSCORER.util.esc(u.Email)}</td><td>${QSCORER.util.esc(u.Phone)}</td>
-        <td><span class="badge ${u.Role === 'ADMIN' ? 'badge-red' : 'badge-blue'}">${QSCORER.util.esc(u.Role)}</span></td>
-        <td>${QSCORER.util.fmtDate(u.CreatedAt)}</td>
-        <td style="text-align:right">
-          <button class="btn btn-ghost btn-sm" data-edit-user="${QSCORER.util.esc(u.UserID)}"><i class="fa-solid fa-pen"></i></button>
-          ${u.Role === 'ADMIN' ? '<span title="Admin tidak dapat dihapus" style="color:var(--muted)"><i class="fa-solid fa-lock"></i></span>' : `<button class="btn btn-red btn-sm" data-del-user="${QSCORER.util.esc(u.UserID)}"><i class="fa-solid fa-trash"></i></button>`}
-        </td></tr>`).join('');
       main.innerHTML = layout('User Management', `
-        <div style="margin-bottom:16px"><button class="btn btn-primary" id="btnAddUser"><i class="fa-solid fa-user-plus"></i> Tambah User</button></div>
-        <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>UserID</th><th>Username</th><th>Email</th><th>Phone</th><th>Role</th><th>Created</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Belum ada user</td></tr>'}</tbody></table></div></div>`);
-      bindUserActions(users);
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+          <button class="btn btn-primary" id="btnAddUser"><i class="fa-solid fa-user-plus"></i> Tambah User</button>
+          <div class="input-wrap" style="flex:1;min-width:220px"><i class="icon fa-solid fa-magnifying-glass"></i><input class="input" id="userSearch" placeholder="Cari username, email, phone, atau role..."></div>
+          <span style="color:var(--muted);font-size:.84rem" id="userCount"></span>
+        </div>
+        <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>UserID</th><th>Username</th><th>Email</th><th>Phone</th><th>Role</th><th>Created</th><th></th></tr></thead><tbody id="userBody"></tbody></table></div></div>`);
+      const renderRows = (list) => {
+        const rows = list.map(u => `<tr>
+          <td>${QSCORER.util.esc(u.UserID)}</td><td><b>${QSCORER.util.esc(u.Username)}</b></td><td>${QSCORER.util.esc(u.Email)}</td><td>${QSCORER.util.esc(u.Phone)}</td>
+          <td><span class="badge ${u.Role === 'ADMIN' ? 'badge-red' : 'badge-blue'}">${QSCORER.util.esc(u.Role)}</span></td>
+          <td>${QSCORER.util.fmtDate(u.CreatedAt)}</td>
+          <td style="text-align:right">
+            <button class="btn btn-ghost btn-sm" data-edit-user="${QSCORER.util.esc(u.UserID)}"><i class="fa-solid fa-pen"></i></button>
+            ${u.Role === 'ADMIN' ? '<span title="Admin tidak dapat dihapus" style="color:var(--muted)"><i class="fa-solid fa-lock"></i></span>' : `<button class="btn btn-red btn-sm" data-del-user="${QSCORER.util.esc(u.UserID)}"><i class="fa-solid fa-trash"></i></button>`}
+          </td></tr>`).join('');
+        QSCORER.util.el('userBody').innerHTML = rows || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">Tidak ada user yang cocok</td></tr>';
+        QSCORER.util.el('userCount').textContent = list.length + ' user';
+        bindUserActions(list);
+      };
+      const search = QSCORER.util.el('userSearch');
+      const doFilter = () => {
+        const q = (search.value || '').toLowerCase().trim();
+        const filtered = users.filter(u => {
+          if (!q) return true;
+          return (u.Username + ' ' + u.Email + ' ' + u.Phone + ' ' + u.Role + ' ' + u.UserID).toLowerCase().indexOf(q) >= 0;
+        });
+        renderRows(filtered);
+      };
+      search.oninput = doFilter;
+      const add = QSCORER.util.el('btnAddUser');
+      if (add) add.onclick = () => userModal(null);
+      renderRows(users);
     } catch (e) { main.innerHTML = errCard(e); }
   }
 
   function bindUserActions(users) {
-    const add = QSCORER.util.el('btnAddUser');
-    if (add) add.onclick = () => userModal(null);
     document.querySelectorAll('[data-edit-user]').forEach(b => {
       b.onclick = () => {
         const u = users.find(x => String(x.UserID) === String(b.dataset.editUser));
@@ -206,10 +225,14 @@
       const rows = d.countries.map(x => `<tr><td>${QSCORER.util.esc(x.CountryID)}</td><td>${QSCORER.util.esc(x.ContinentID)}</td><td><b>${QSCORER.util.esc(x.CountryName)}</b></td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-ed-cy="${QSCORER.util.esc(x.CountryID)}"><i class="fa-solid fa-pen"></i></button><button class="btn btn-red btn-sm" data-del-cy="${QSCORER.util.esc(x.CountryID)}"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
       box.innerHTML = `<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" data-add-cy><i class="fa-solid fa-plus"></i> Tambah Country</button></div><div class="table-wrap"><table class="table"><thead><tr><th>CountryID</th><th>ContinentID</th><th>Nama</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Kosong</td></tr>'}</tbody></table></div>`;
       bindCountry(d.countries, d.continents);
-    } else if (type === 'league') {
-      const rows = d.leagues.map(x => `<tr><td>${QSCORER.util.esc(x.LeagueID)}</td><td>${QSCORER.util.esc(x.CountryID)}</td><td><b>${QSCORER.util.esc(x.LeagueName)}</b></td><td>${QSCORER.util.esc(x.Season)}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-ed-l="${QSCORER.util.esc(x.LeagueID)}"><i class="fa-solid fa-pen"></i></button><button class="btn btn-red btn-sm" data-del-l="${QSCORER.util.esc(x.LeagueID)}"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
-      box.innerHTML = `<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" data-add-l><i class="fa-solid fa-plus"></i> Tambah Liga</button></div><div class="table-wrap"><table class="table"><thead><tr><th>LeagueID</th><th>CountryID</th><th>Nama Liga</th><th>Season</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Kosong</td></tr>'}</tbody></table></div>`;
-      bindLeague(d.leagues, d.countries);
+} else if (type === 'league') {
+      const scaleBadge = (s) => {
+        const map = { NATIONAL: 'badge-blue', CONTINENTAL: 'badge-gold', UNIVERSAL: 'badge-red' };
+        return `<span class="badge ${map[s] || 'badge-blue'}">${QSCORER.util.esc(s || 'NATIONAL')}</span>`;
+      };
+      const rows = d.leagues.map(x => `<tr><td>${QSCORER.util.esc(x.LeagueID)}</td><td>${QSCORER.util.esc(x.CountryID || '-')}</td><td><b>${QSCORER.util.esc(x.LeagueName)}</b></td><td>${QSCORER.util.esc(x.Season)}</td><td>${scaleBadge(x.LeagueScale)}</td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-ed-l="${QSCORER.util.esc(x.LeagueID)}"><i class="fa-solid fa-pen"></i></button><button class="btn btn-red btn-sm" data-del-l="${QSCORER.util.esc(x.LeagueID)}"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
+      box.innerHTML = `<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" data-add-l><i class="fa-solid fa-plus"></i> Tambah Liga</button></div><div class="table-wrap"><table class="table"><thead><tr><th>LeagueID</th><th>CountryID</th><th>Nama Liga</th><th>Season</th><th>Skala</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Kosong</td></tr>'}</tbody></table></div>`;
+      bindLeague(d.leagues, d.countries, d.continents);
     } else if (type === 'team') {
       const rows = d.teams.map(x => `<tr><td>${QSCORER.util.esc(x.TeamID)}</td><td>${QSCORER.util.esc(x.LeagueID)}</td><td><b>${QSCORER.util.esc(x.TeamName)}</b></td><td style="text-align:right"><button class="btn btn-ghost btn-sm" data-ed-t="${QSCORER.util.esc(x.TeamID)}"><i class="fa-solid fa-pen"></i></button><button class="btn btn-red btn-sm" data-del-t="${QSCORER.util.esc(x.TeamID)}"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
       box.innerHTML = `<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" data-add-t><i class="fa-solid fa-plus"></i> Tambah Tim</button></div><div class="table-wrap"><table class="table"><thead><tr><th>TeamID</th><th>LeagueID</th><th>Nama Tim</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">Kosong</td></tr>'}</tbody></table></div>`;
@@ -249,24 +272,76 @@
       body = `<div class="form-group"><label class="form-label">Nama Benua</label><input class="input no-icon" id="mName" value="${QSCORER.util.esc(item ? item.ContinentName : '')}"></div>`;
     } else if (kind === 'country') {
       body = `<div class="form-group"><label class="form-label">Continent</label><select class="input no-icon" id="mParent">${QSCORER.util.option(conts, 'ContinentID', 'ContinentName', item ? item.ContinentID : '')}</select></div><div class="form-group"><label class="form-label">Nama Negara</label><input class="input no-icon" id="mName" value="${QSCORER.util.esc(item ? item.CountryName : '')}"></div>`;
-    } else if (kind === 'league') {
-      body = `<div class="form-group"><label class="form-label">Country</label><select class="input no-icon" id="mParent">${QSCORER.util.option(countries, 'CountryID', 'CountryName', item ? item.CountryID : '')}</select></div><div class="form-group"><label class="form-label">Nama Liga</label><input class="input no-icon" id="mName" value="${QSCORER.util.esc(item ? item.LeagueName : '')}"></div><div class="form-group"><label class="form-label">Season</label><input class="input no-icon" id="mSeason" value="${QSCORER.util.esc(item ? item.Season : '')}"></div>`;
+} else if (kind === 'league') {
+      const initScale = item && item.LeagueScale ? item.LeagueScale : 'NATIONAL';
+      // Untuk CONTINENTAL, CountryID menyimpan ID benua (mis. CONT003 = Eropa).
+      const lgParent = item ? item.CountryID : '';
+      body = `<div class="form-group"><label class="form-label">Skala Liga</label><select class="input no-icon" id="mScale">
+          <option value="NATIONAL" ${initScale === 'NATIONAL' ? 'selected' : ''}>NATIONAL (Liga Domestik)</option>
+          <option value="CONTINENTAL" ${initScale === 'CONTINENTAL' ? 'selected' : ''}>CONTINENTAL (Benua - contoh: UCL)</option>
+          <option value="UNIVERSAL" ${initScale === 'UNIVERSAL' ? 'selected' : ''}>UNIVERSAL (Dunia - contoh: Friendly)</option>
+        </select></div>
+        <div class="input-hint" id="mScaleHint" style="margin-bottom:14px"></div>
+        <div id="mParentWrap"><div class="form-group"><label class="form-label" id="mParentLbl">Negara</label><select class="input no-icon" id="mParent"></select></div></div>
+        <div class="form-group"><label class="form-label">Nama Liga</label><input class="input no-icon" id="mName" value="${QSCORER.util.esc(item ? item.LeagueName : '')}"></div>
+        <div class="form-group"><label class="form-label">Season</label><input class="input no-icon" id="mSeason" value="${QSCORER.util.esc(item ? item.Season : '')}"></div>`;
     } else if (kind === 'team') {
       body = `<div class="form-group"><label class="form-label">League</label><select class="input no-icon" id="mParent">${QSCORER.util.option(leagues, 'LeagueID', 'LeagueName', item ? item.LeagueID : '')}</select></div><div class="form-group"><label class="form-label">Nama Tim</label><input class="input no-icon" id="mName" value="${QSCORER.util.esc(item ? item.TeamName : '')}"></div>`;
     }
     const ov = QSCORER.ui.modal('Data Master', body + '<div class="error-msg" id="mErr" style="display:none"></div><button class="btn btn-primary btn-block" id="mSave"><i class="fa-solid fa-check"></i> Simpan</button>');
+// Logika dinamis: input dimulai dari skala liga.
+    //  - NATIONAL    : pilih NEGARA (CountryID) → tim dari liga itu
+    //  - CONTINENTAL : pilih BENUA (CountryID menyimpan ID benua) → tim satu benua
+    //  - UNIVERSAL   : tidak perlu parent → CountryID dikosongkan
+    if (kind === 'league') {
+      const scaleSel = QSCORER.util.el('mScale');
+      const parentSel = QSCORER.util.el('mParent');
+      const wrap = QSCORER.util.el('mParentWrap');
+      const parentLbl = QSCORER.util.el('mParentLbl');
+      const hint = QSCORER.util.el('mScaleHint');
+      // Untuk CONTINENTAL, CountryID harus berupa ID benua (bukan negara).
+      const initCountry = item && item.LeagueScale === 'CONTINENTAL' ? '' : (item ? item.CountryID : '');
+      const initContinent = item && item.LeagueScale === 'CONTINENTAL' ? (item.CountryID || '') : '';
+      const applyScaleUI = () => {
+        const v = scaleSel ? scaleSel.value : 'NATIONAL';
+        const scaleLabels = { NATIONAL: 'Negara', CONTINENTAL: 'Benua', UNIVERSAL: 'Dunia' };
+        if (hint) hint.textContent = 'Skala: ' + (scaleLabels[v] || v);
+        if (!parentSel) return;
+        if (v === 'NATIONAL') {
+          parentSel.innerHTML = QSCORER.util.option(countries, 'CountryID', 'CountryName', initCountry);
+        } else if (v === 'CONTINENTAL') {
+          parentSel.innerHTML = QSCORER.util.option(conts, 'ContinentID', 'ContinentName', initContinent);
+        } else {
+          parentSel.innerHTML = '<option value="">-- Dunia (semua tim) --</option>';
+        }
+        if (parentLbl) parentLbl.textContent = v === 'CONTINENTAL' ? 'Benua' : (v === 'NATIONAL' ? 'Negara' : 'Cakupan');
+        if (wrap) wrap.style.display = v === 'UNIVERSAL' ? 'none' : '';
+      };
+      if (scaleSel) {
+        scaleSel.onchange = applyScaleUI;
+        applyScaleUI();
+      }
+    }
     const save = QSCORER.util.el('mSave');
     save.onclick = async () => {
       const err = QSCORER.util.el('mErr');
       const name = QSCORER.util.el('mName').value.trim();
-      const parent = QSCORER.util.el('mParent') ? QSCORER.util.el('mParent').value : null;
       const season = QSCORER.util.el('mSeason') ? QSCORER.util.el('mSeason').value.trim() : null;
+      const scale = QSCORER.util.el('mScale') ? QSCORER.util.el('mScale').value : null;
+      // parent:
+      //  - NATIONAL    = CountryID (negara)
+      //  - CONTINENTAL = CountryID (berisi ID benua)
+      //  - UNIVERSAL   = '' (tidak terikat negara/benua)
+      const parent = (kind === 'league' && scale === 'UNIVERSAL')
+        ? ''
+        : (QSCORER.util.el('mParent') ? QSCORER.util.el('mParent').value : '');
       showErr(err, '');
       if (!name) return showErr(err, 'Nama wajib diisi');
+      if (kind === 'league' && scale !== 'UNIVERSAL' && !parent) return showErr(err, 'Pilih negara (NATIONAL) atau benua (CONTINENTAL)');
       let res;
       if (kind === 'continent') res = isEdit ? await QSCORER.api.updateContinent({ ContinentID: item.ContinentID, ContinentName: name }) : await QSCORER.api.addContinent({ ContinentName: name });
       else if (kind === 'country') res = isEdit ? await QSCORER.api.updateCountry({ CountryID: item.CountryID, ContinentID: parent, CountryName: name }) : await QSCORER.api.addCountry({ ContinentID: parent, CountryName: name });
-      else if (kind === 'league') res = isEdit ? await QSCORER.api.updateLeague({ LeagueID: item.LeagueID, CountryID: parent, LeagueName: name, Season: season }) : await QSCORER.api.addLeague({ CountryID: parent, LeagueName: name, Season: season });
+      else if (kind === 'league') res = isEdit ? await QSCORER.api.updateLeague({ LeagueID: item.LeagueID, CountryID: parent, LeagueName: name, Season: season, LeagueScale: scale || 'NATIONAL' }) : await QSCORER.api.addLeague({ CountryID: parent, LeagueName: name, Season: season, LeagueScale: scale || 'NATIONAL' });
       else if (kind === 'team') res = isEdit ? await QSCORER.api.updateTeam({ TeamID: item.TeamID, LeagueID: parent, TeamName: name }) : await QSCORER.api.addTeam({ LeagueID: parent, TeamName: name });
       if (res.status === 'error') return showErr(err, res.message);
       QSCORER.ui.toast(res.message, 'success');
@@ -283,22 +358,50 @@
     });
   }
 
-  // ===== MATCH VALIDATION =====
+// ===== MATCH VALIDATION =====
   async function loadValidation() {
     const main = QSCORER.util.el('main');
     main.innerHTML = '<div style="padding:40px">' + QSCORER.ui.loader('Memuat pertandingan...') + '</div>';
     try {
       const d = await fetchData();
       const matches = d.matches || [], teams = d.teams || [], results = d.results || [];
-      const rows = matches.map(m => {
-        const h = ((teams.find(t => String(t.TeamID) === String(m.HomeTeamID)) || {}).TeamName) || 'Home';
-        const a = ((teams.find(t => String(t.TeamID) === String(m.AwayTeamID)) || {}).TeamName) || 'Away';
-        const res = results.find(r => String(r.MatchID) === String(m.MatchID));
-        return `<tr><td>${QSCORER.util.fmtDate(m.Date)}</td><td><b>${QSCORER.util.esc(h + ' vs ' + a)}</b></td><td>${res ? QSCORER.util.esc(res.HTScore) : '-'}</td><td>${res ? QSCORER.util.esc(res.FTScore) : '-'}</td><td>${res ? '<span class="badge badge-green">Validated</span>' : '<span class="badge badge-red">Pending</span>'}</td><td><button class="btn btn-primary btn-sm" data-val="${QSCORER.util.esc(m.MatchID)}"><i class="fa-solid fa-check"></i> Validasi</button></td></tr>`;
-      }).join('');
+      const isValidated = (mid) => results.some(r => String(r.MatchID) === String(mid));
       main.innerHTML = layout('Match Validation', `
-        <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Tanggal</th><th>Match</th><th>HT</th><th>FT</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Belum ada match</td></tr>'}</tbody></table></div></div>`);
-      bindValidation(d);
+        <div class="card">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+            <button class="tab active" data-vf="pending" id="vfPending">Pending</button>
+            <button class="tab" data-vf="validated" id="vfValidated">Validated</button>
+            <button class="tab" data-vf="all" id="vfAll">All</button>
+            <span style="margin-left:auto;color:var(--muted);font-size:.84rem" id="valCount"></span>
+          </div>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Tanggal</th><th>Match</th><th>HT</th><th>FT</th><th>Status</th><th></th></tr></thead><tbody id="valBody"></tbody></table></div>
+        </div>`);
+      let filter = 'pending'; // default menampilkan yang belum divalidasi
+      const tabBtns = document.querySelectorAll('[data-vf]');
+      const render = () => {
+        const list = matches.filter(m => {
+          const valid = isValidated(m.MatchID);
+          if (filter === 'pending') return !valid;
+          if (filter === 'validated') return valid;
+          return true;
+        });
+        const rows = list.map(m => {
+          const h = ((teams.find(t => String(t.TeamID) === String(m.HomeTeamID)) || {}).TeamName) || 'Home';
+          const a = ((teams.find(t => String(t.TeamID) === String(m.AwayTeamID)) || {}).TeamName) || 'Away';
+          const res = results.find(r => String(r.MatchID) === String(m.MatchID));
+          const valid = !!res;
+          // Jika sudah divalidasi → terkunci (tidak bisa divalidasi/diedit lagi)
+          const action = valid
+            ? '<span class="badge badge-green"><i class="fa-solid fa-lock"></i> Terkunci</span>'
+            : `<button class="btn btn-primary btn-sm" data-val="${QSCORER.util.esc(m.MatchID)}"><i class="fa-solid fa-check"></i> Validasi</button>`;
+          return `<tr><td>${QSCORER.util.fmtDate(m.Date)}</td><td><b>${QSCORER.util.esc(h + ' vs ' + a)}</b></td><td>${res ? QSCORER.util.esc(res.HTScore) : '-'}</td><td>${res ? QSCORER.util.esc(res.FTScore) : '-'}</td><td>${valid ? '<span class="badge badge-green">Validated</span>' : '<span class="badge badge-red">Pending</span>'}</td><td>${action}</td></tr>`;
+        }).join('');
+        QSCORER.util.el('valBody').innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Tidak ada pertandingan pada filter ini</td></tr>';
+        QSCORER.util.el('valCount').textContent = list.length + ' pertandingan';
+        bindValidation(d);
+      };
+      tabBtns.forEach(t => t.onclick = () => { tabBtns.forEach(x => x.classList.remove('active')); t.classList.add('active'); filter = t.dataset.vf; render(); });
+      render();
     } catch (e) { main.innerHTML = errCard(e); }
   }
 

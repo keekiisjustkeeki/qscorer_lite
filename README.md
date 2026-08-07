@@ -1,1 +1,0 @@
-# qscorer_lite

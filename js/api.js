@@ -1,5 +1,5 @@
 const QSCORER = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwZVvhoeQmBpCkkqGncbmRiTgy16VbPXmjNcgM_A47azs9gFOe-I2kOdGc9u_oRMMcYnA/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwVYHNrejSKEpBpnSfM4mjcmPtGsgqs4nDvtwZqJEa5IQRLK73YySv_Xc_nEgsURUFVNw/exec',
   SESSION_KEY: 'qscorer_session'
 };
 

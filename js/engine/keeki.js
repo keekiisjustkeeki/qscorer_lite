@@ -36,47 +36,55 @@ QSCORER.engine = {
     const home = this.findTeam(match.HomeTeamID, teams);
     const away = this.findTeam(match.AwayTeamID, teams);
     const odds = this.findOdds(match.MatchID, oddsList);
-    const league = (data.leagues || []).find(l => String(l.LeagueID) === String(match.LeagueID)) || {};
+const leaguesAll = data.leagues || [];
+    const league = leaguesAll.find(l => String(l.LeagueID) === String(match.LeagueID)) || {};
+    league._allLeagues = leaguesAll;
 
-    // 8 components per engine.md
+// 9 components per engine.md (incl. club pattern learning)
     const form = this.formAnalysis(home, away, results, matches);
     const ha = this.homeAway(match, results, matches);
     const h2h = this.headToHead(match, results, matches);
     const goal = this.goalPattern(results);
     const htPat = this.htPattern(results);
     const lgPat = this.leaguePattern(league, results, matches);
+    const clubPat = this.clubPattern(match, results, matches);
     const oddsVal = this.oddsValue(odds);
     const learnCorr = this.learningCorrection(learning, form, oddsVal);
 
     const w = this.getWeights(learning);
-    const hs = w.w1 * form.home + w.w2 * ha.home + w.w3 * h2h.home + w.w4 * goal.home + w.w5 * htPat.home + w.w6 * lgPat.homeWin + w.w7 * oddsVal.home + w.w8 * learnCorr.home;
-    const ds = w.w1 * form.draw + w.w2 * ha.draw + w.w3 * h2h.draw + w.w4 * goal.draw + w.w5 * htPat.draw + w.w6 * lgPat.drawRate + w.w7 * oddsVal.draw + w.w8 * learnCorr.draw;
-    const as = w.w1 * form.away + w.w2 * ha.away + w.w3 * h2h.away + w.w4 * goal.away + w.w5 * htPat.away + w.w6 * lgPat.awayWin + w.w7 * oddsVal.away + w.w8 * learnCorr.away;
+    const hs = w.w1 * form.home + w.w2 * ha.home + w.w3 * h2h.home + w.w4 * goal.home + w.w5 * htPat.home + w.w6 * lgPat.homeWin + w.w7 * oddsVal.home + w.w8 * clubPat.home;
+    const ds = w.w1 * form.draw + w.w2 * ha.draw + w.w3 * h2h.draw + w.w4 * goal.draw + w.w5 * htPat.draw + w.w6 * lgPat.drawRate + w.w7 * oddsVal.draw + w.w8 * clubPat.draw;
+    const as = w.w1 * form.away + w.w2 * ha.away + w.w3 * h2h.away + w.w4 * goal.away + w.w5 * htPat.away + w.w6 * lgPat.awayWin + w.w7 * oddsVal.away + w.w8 * clubPat.away;
     const total = hs + ds + as || 1;
     const pHome = hs / total, pDraw = ds / total, pAway = as / total;
 
-    const ouLine = odds && odds.OU_Line ? parseFloat(odds.OU_Line) : 2.5;
+    // --- Exact lines from input odds (tidak di-hardcode) ---
+    const ouLine = odds && odds.OU_Line !== '' && odds.OU_Line !== undefined ? parseFloat(odds.OU_Line) : 2.5;
+    const hdpHomeLine = odds && odds.HDPHome !== '' && odds.HDPHome !== undefined ? odds.HDPHome : -0.5;
+    const hdpAwayLine = odds && odds.HDPAway !== '' && odds.HDPAway !== undefined ? odds.HDPAway : 0.5;
     const avgGoals = (goal.avgTotal + lgPat.avgGoals) / 2;
-    const overProb = Math.min(0.9, Math.max(0.1, 1 - Math.exp(-avgGoals * 0.8)));
+    // Blend statistik avg-goals dengan implied odds over/under untuk UNDER/OVER seimbang
+    const statOverProb = this.overProbability(avgGoals);
+    const impliedOverProb = this.oddsValueOU(odds);
+    const overSignificance = 0.5;
+    const overProb = Math.min(0.9, Math.max(0.1, statOverProb * (1 - overSignificance) + impliedOverProb * overSignificance));
 
     const ft1x2 = pHome >= pDraw && pHome >= pAway ? 'HOME' : (pAway >= pDraw ? 'AWAY' : 'DRAW');
     const ftOU = overProb >= 0.5 ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
-    // Odd/Even berdasarkan probabilitas gol (bukan Math.random)
-    const oddProb = Math.min(0.9, Math.max(0.1, 0.55 - (avgGoals % 2) * 0.1));
+    // Odd/Even: blend default dengan implied odds
+    const oddProb = Math.min(0.9, Math.max(0.1, 0.55 * 0.5 + this.oddsValueOE(odds) * 0.5));
     const ftOE = oddProb >= 0.5 ? 'ODD' : 'EVEN';
     const hdpHome = pHome - pAway;
-    const ftHDP = hdpHome >= 0 ? 'HOME ' + (odds && odds.HDPHome ? odds.HDPHome : '-0.5') : 'AWAY ' + (odds && odds.HDPAway ? odds.HDPAway : '+0.5');
+    const ftHDP = hdpHome >= 0 ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
     const ht1x2 = pHome >= 0.34 ? 'HOME' : (pAway >= 0.34 ? 'AWAY' : 'DRAW');
     const htOU = avgGoals >= 0.8 ? 'OVER 0.5' : 'UNDER 0.5';
     const htHDP = hdpHome >= 0 ? 'HOME' : 'AWAY';
 
-    const confidence = Math.round(Math.max(pHome, pDraw, pAway) * 100);
-    const probArr = [
-      ['FT 1X2', ft1x2, 100 * Math.max(pHome, pDraw, pAway)],
-      ['FT O/U', ftOU, 100 * overProb],
-      ['HT 1X2', ht1x2, 100 * Math.max(pHome, pDraw, pAway)]
-    ].sort((a, b) => b[2] - a[2]);
-    const rec = probArr[0][2] >= 70 ? probArr[0][1] : ftOU;
+    // --- Varied recommendation: pilih peluang tertinggi dari semua market ---
+    const candidates = this.buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals);
+    const best = candidates[0];
+    const rec = best.pick;
+    const confidence = Math.round(best.prob);
 
 // Prediksi Skor HT & FT (Blueprint #8) — Poisson + seeded RNG (deterministik per match)
     // Expected goals memakai kekuatan relatif tim (bukan rata-rata statis).
@@ -173,12 +181,26 @@ QSCORER.engine = {
     return { home: 0.5, away: 0.5, draw: 0.3, htOver: avg > 0.5 ? 0.5 : 0.3 };
   },
 
-  leaguePattern(league, results, matches) {
+leaguePattern(league, results, matches) {
     let total = 0, avgGoals = 0, homeWin = 0, draw = 0;
+    const scale = String((league && league.LeagueScale) || 'NATIONAL').toUpperCase();
+    const leaguesAll = league ? (league._allLeagues || []) : [];
     for (const r of (results || [])) {
       const m = matches.find(x => String(x.MatchID) === String(r.MatchID));
       if (!m) continue;
-      if (league && m.LeagueID && String(m.LeagueID) !== String(league.LeagueID)) continue;
+      // Scale-aware: NATIONAL = liga spesifik, CONTINENTAL = semua liga skala benua,
+      // UNIVERSAL = semua liga skala universal (dunia)
+      if (league) {
+        if (scale === 'CONTINENTAL') {
+          const mLg = leaguesAll.find(l => String(l.LeagueID) === String(m.LeagueID)) || {};
+          if (String(mLg.LeagueScale || 'NATIONAL').toUpperCase() !== 'CONTINENTAL') continue;
+        } else if (scale === 'UNIVERSAL') {
+          const mLg = leaguesAll.find(l => String(l.LeagueID) === String(m.LeagueID)) || {};
+          if (String(mLg.LeagueScale || 'NATIONAL').toUpperCase() !== 'UNIVERSAL') continue;
+        } else {
+          if (m.LeagueID && String(m.LeagueID) !== String(league.LeagueID)) continue;
+        }
+      }
       total++;
       const hs = this.score(r.FTScore, true), as = this.score(r.FTScore, false);
       avgGoals += (hs + as);
@@ -209,6 +231,65 @@ QSCORER.engine = {
     const h = parseFloat(odds.HomeOdds) || 2, d = parseFloat(odds.DrawOdds) || 3.2, a = parseFloat(odds.AwayOdds) || 3.5;
     const ih = 1 / h, id = 1 / d, ia = 1 / a, s = ih + id + ia || 1;
     return { home: ih / s, draw: id / s, away: ia / s };
+  },
+
+  // Implied over/under probability dari odds (agar bisa recommend UNDER juga)
+  oddsValueOU(odds) {
+    if (!odds) return 0.5;
+    const over = parseFloat(odds.OverOdds), under = parseFloat(odds.UnderOdds);
+    const ov = (!isNaN(over) && over > 0) ? over : 1.9;
+    const un = (!isNaN(under) && under > 0) ? under : 1.9;
+    const io = 1 / ov, iu = 1 / un, s = io + iu || 1;
+    return io / s;
+  },
+
+  // Implied odd/even probability dari odds
+  oddsValueOE(odds) {
+    if (!odds) return 0.5;
+    const odd = parseFloat(odds.OddOdds), even = parseFloat(odds.EvenOdds);
+    const od = (!isNaN(odd) && odd > 0) ? odd : 1.9;
+    const ev = (!isNaN(even) && even > 0) ? even : 1.9;
+    const io = 1 / od, ie = 1 / ev, s = io + ie || 1;
+    return io / s;
+  },
+
+  overProbability(avgGoals) {
+    const pOver = 1 - Math.exp(-avgGoals * 0.8);
+    return Math.min(0.9, Math.max(0.1, pOver));
+  },
+
+  // Pola per klub (home/away tendency + over/under tendency) — engine belajar dari data
+  clubPattern(match, results, matches) {
+    const home = match.HomeTeamID, away = match.AwayTeamID;
+    let hM = 0, hW = 0, hD = 0, hOver = 0, aM = 0, aW = 0, aD = 0, aOver = 0;
+    for (const r of results) {
+      const m = matches.find(x => String(x.MatchID) === String(r.MatchID));
+      if (!m) continue;
+      const hs = this.score(r.FTScore, true), as = this.score(r.FTScore, false);
+      if (String(m.HomeTeamID) === String(home)) { hM++; if (hs > as) hW++; else if (hs === as) hD++; if ((hs + as) >= 2.5) hOver++; }
+      if (String(m.AwayTeamID) === String(away)) { aM++; if (as > hs) aW++; else if (as === hs) aD++; if ((hs + as) >= 2.5) aOver++; }
+    }
+    const hp = hM > 0 ? hW / hM : 0.5;
+    const ap = aM > 0 ? aW / aM : 0.5;
+    const dp = (hM + aM) > 0 ? (hD + aD) / (hM + aM) : 0.25;
+    const hOverRate = hM > 0 ? hOver / hM : 0.5;
+    const aOverRate = aM > 0 ? aOver / aM : 0.5;
+    return { home: hp, away: ap, draw: Math.min(0.4, dp), hOverRate, aOverRate };
+  },
+
+  // Bangun daftar kandidat rekomendasi dari semua market, urutkan probabilitas tertinggi
+  buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals) {
+    const arr = [];
+    const hdpPick = String(ftHDP).indexOf('HOME') === 0;
+    const hdpC = hdpPick ? Math.max(pHome * 100, 50 + (pHome - pAway) * 100) : Math.max(pAway * 100, 50 + (pAway - pHome) * 100);
+    arr.push({ pick: ft1x2, prob: Math.max(pHome, pDraw, pAway) * 100 });
+    arr.push({ pick: ftHDP, prob: Math.min(85, hdpC) });
+    arr.push({ pick: ftOE, prob: oddProb * 100 });
+    // Peluang under & over terpisah agar bisa rekomendasi under
+    arr.push({ pick: 'OVER ' + ouLine, prob: overProb * 100 });
+    arr.push({ pick: 'UNDER ' + ouLine, prob: (1 - overProb) * 100 });
+    arr.sort((a, b) => b.prob - a.prob);
+    return arr;
   },
 
 score(str, home) {

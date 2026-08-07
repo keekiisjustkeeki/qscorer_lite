@@ -32,6 +32,18 @@ QSCORER.ui = {
       document.body.appendChild(this.toastWrap);
     }
   },
+  donate(modalTitle = 'Dukung Pengembangan') {
+    this.init();
+    const body = `
+      <div style="text-align:center">
+        <p style="color:var(--muted);margin-bottom:16px">Dukung pengembangan sistem QSCORER Lite agar semakin baik dan akurat!</p>
+        <div class="qr-box"><img src="assets/qr_supportdonasi.jpeg" alt="QR Donasi"></div>
+        <p style="color:var(--muted);font-size:.82rem;margin-top:12px">Scan QR di atas untuk melakukan donasi dukungan.</p>
+        <p style="color:var(--muted);font-size:.78rem;margin-top:8px">Terima kasih atas dukungan Anda 🙏</p>
+      </div>`;
+    this.modal(modalTitle, body);
+  },
+
   toast(msg, type = 'info') {
     this.init();
     const t = document.createElement('div');

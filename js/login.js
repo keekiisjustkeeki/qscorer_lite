@@ -66,11 +66,31 @@ try {
           <div class="input-hint" style="text-align:center;margin-top:14px">Statistik diperbarui otomatis dari data validasi.</div>`;
       }
       // 2) Trial form
-      if (leagueSel) {
+if (leagueSel) {
         leagueSel.innerHTML = '<option value="">-- Pilih Liga --</option>' + QSCORER.util.option(leagues, 'LeagueID', 'LeagueName');
-        const fillTeams = (lid) => teams.filter(t => String(t.LeagueID) === String(lid));
+        const countries = ((await QSCORER.api.request('getCountries')).status === 'ok' ? (await QSCORER.api.request('getCountries')).data : []) || [];
+        const teamsInLeague = (lid) => teams.filter(t => String(t.LeagueID) === String(lid));
+        // Resolver tim berdasarkan skala liga (NATIONAL/CONTINENTAL/UNIVERSAL)
+        const getTeamsForLeague = (lid) => {
+          if (!lid) return teams;
+          const lg = leagues.find(l => String(l.LeagueID) === String(lid));
+          const scale = String((lg && lg.LeagueScale) || 'NATIONAL').toUpperCase();
+          if (scale === 'UNIVERSAL') return teams.slice();
+          if (scale === 'CONTINENTAL') {
+            const lgCountry = countries.find(c => String(c.CountryID) === String(lg && lg.CountryID));
+            const continentId = lgCountry ? lgCountry.ContinentID : null;
+            if (!continentId) return teamsInLeague(lid);
+            const sameContinentLeagues = leagues.filter(ol => {
+              const oc = countries.find(c => String(c.CountryID) === String(ol.CountryID));
+              return oc && String(oc.ContinentID) === String(continentId);
+            });
+            const ids = sameContinentLeagues.map(ol => String(ol.LeagueID));
+            return teams.filter(t => ids.indexOf(String(t.LeagueID)) >= 0);
+          }
+          return teamsInLeague(lid);
+        };
         leagueSel.onchange = () => {
-          const opts = fillTeams(leagueSel.value);
+          const opts = getTeamsForLeague(leagueSel.value);
           homeSel.innerHTML = '<option value="">-- Kandang --</option>' + QSCORER.util.option(opts, 'TeamID', 'TeamName');
           awaySel.innerHTML = '<option value="">-- Tandang --</option>' + QSCORER.util.option(opts, 'TeamID', 'TeamName');
         };
@@ -139,9 +159,9 @@ try {
   function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
   loadVisitorPreview();
 
-  // Donate button
+// Donate button
   const donate = QSCORER.util.el('btnDonate');
-  if (donate) donate.onclick = () => QSCORER.ui.toast('Fitur donasi tersedia setelah login', 'info');
+  if (donate) donate.onclick = () => QSCORER.ui.donate();
 
   // Login form
   const fm = QSCORER.util.el('authForm');

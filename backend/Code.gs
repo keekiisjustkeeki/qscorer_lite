@@ -443,7 +443,12 @@ function addLeague(data){
   for(var i=0;i<list.length;i++){
     if(normName(list[i].LeagueName) === normName(name)) return {status:'error', message:'Liga "' + name + '" sudah ada'};
   }
-  appendRow('League', {LeagueID: genId('L_'), CountryID: data.CountryID, LeagueName: name, Season: data.Season});
+var scale = String(data.LeagueScale || 'NATIONAL').toUpperCase();
+  // NATIONAL   → CountryID = negara
+  // CONTINENTAL→ CountryID = ID benua (mis. CONT003 = Eropa)
+  // UNIVERSAL  → CountryID dikosongkan (tidak terikat negara/benua)
+  var cid = (scale === 'UNIVERSAL') ? '' : data.CountryID;
+appendRow('League', {LeagueID: genId('L_'), CountryID: cid, LeagueName: name, Season: data.Season, LeagueScale: scale});
   return {status:'ok', message:'Liga ditambahkan'};
 }
 function updateLeague(data){
@@ -455,7 +460,12 @@ function updateLeague(data){
       return {status:'error', message:'Liga "' + name + '" sudah ada'};
     }
   }
-  updateRow('League', 'LeagueID', data.LeagueID, {CountryID: data.CountryID, LeagueName: name, Season: data.Season});
+var scale = String(data.LeagueScale || 'NATIONAL').toUpperCase();
+  // NATIONAL   → CountryID = negara
+  // CONTINENTAL→ CountryID = ID benua (mis. CONT003 = Eropa)
+  // UNIVERSAL  → CountryID dikosongkan (tidak terikat negara/benua)
+  var cid = (scale === 'UNIVERSAL') ? '' : data.CountryID;
+updateRow('League', 'LeagueID', data.LeagueID, {CountryID: cid, LeagueName: name, Season: data.Season, LeagueScale: scale});
   return {status:'ok', message:'Liga diupdate'};
 }
 function deleteLeague(data){
@@ -685,33 +695,45 @@ function keekiEngine(match, teams, leagues, odds, results, predictions, learning
   var h2h = headToHead(match, results, teams);
   var goal = goalPattern(results);
   var htPat = htPattern(results);
-  var lgPat = leaguePattern(league, results, teams);
+var lgPat = leaguePattern(league, results, teams, leagues);
+  var clubPat = clubPattern(match, results, teams);
   var oddsVal = oddsValue(odds);
-  var homeScore = weights.w1*form.home + weights.w2*homeAway.home + weights.w3*h2h.home + weights.w4*goal.home + weights.w5*htPat.home + weights.w6*lgPat.homeWin + weights.w7*oddsVal.home;
-  var drawScore = weights.w1*form.draw + weights.w2*homeAway.draw + weights.w3*h2h.draw + weights.w4*goal.draw + weights.w5*htPat.draw + weights.w6*lgPat.drawRate + weights.w7*oddsVal.draw;
-  var awayScore = weights.w1*form.away + weights.w2*homeAway.away + weights.w3*h2h.away + weights.w4*goal.away + weights.w5*htPat.away + weights.w6*lgPat.awayWin + weights.w7*oddsVal.away;
+  var homeScore = weights.w1*form.home + weights.w2*homeAway.home + weights.w3*h2h.home + weights.w4*goal.home + weights.w5*htPat.home + weights.w6*lgPat.homeWin + weights.w7*oddsVal.home + weights.w8*clubPat.home;
+  var drawScore = weights.w1*form.draw + weights.w2*homeAway.draw + weights.w3*h2h.draw + weights.w4*goal.draw + weights.w5*htPat.draw + weights.w6*lgPat.drawRate + weights.w7*oddsVal.draw + weights.w8*clubPat.draw;
+  var awayScore = weights.w1*form.away + weights.w2*homeAway.away + weights.w3*h2h.away + weights.w4*goal.away + weights.w5*htPat.away + weights.w6*lgPat.awayWin + weights.w7*oddsVal.away + weights.w8*clubPat.away;
   var total = homeScore + drawScore + awayScore;
   if(total === 0) total = 1;
   var pHome = homeScore/total;
   var pDraw = drawScore/total;
   var pAway = awayScore/total;
   var ft1x2 = pHome >= pDraw && pHome >= pAway ? 'HOME' : (pAway >= pDraw ? 'AWAY' : 'DRAW');
-  var ouLine = odds && odds.OU_Line ? parseFloat(odds.OU_Line) : 2.5;
+  // --- Exact lines from input odds (tidak di-hardcode) ---
+  var ouLine = odds && odds.OU_Line !== '' && odds.OU_Line !== undefined ? parseFloat(odds.OU_Line) : 2.5;
+  if(isNaN(ouLine) || ouLine <= 0) ouLine = 2.5;
+  var hdpHomeLine = odds && odds.HDPHome !== '' && odds.HDPHome !== undefined ? odds.HDPHome : -0.5;
+  var hdpAwayLine = odds && odds.HDPAway !== '' && odds.HDPAway !== undefined ? odds.HDPAway : 0.5;
   var avgGoals = (goal.avgTotal + lgPat.avgGoals) / 2;
-  var overProb = overProbability(avgGoals, total);
+  // Blend statistik avg-goals dengan implied odds over/under untuk UNDER/OVER seimbang
+  var statOverProb = overProbability(avgGoals, total);
+  var impliedOverProb = oddsValueOU(odds);
+  var overSignificance = 0.5; // semakin banyak learning, semakin percaya odds
+  var overProb = statOverProb * (1 - overSignificance) + impliedOverProb * overSignificance;
+  overProb = Math.min(0.9, Math.max(0.1, overProb));
   var ftOU = overProb >= 0.5 ? 'OVER ' + ouLine : 'UNDER ' + ouLine;
   var oddProb = Math.min(0.9, Math.max(0.1, 0.55));
+  var oddImplied = oddsValueOE(odds);
+  oddProb = oddProb * 0.5 + oddImplied * 0.5;
   var ftOE = oddProb >= 0.5 ? 'ODD' : 'EVEN';
   var hdpHome = pHome - pAway;
-  var ftHDP = hdpHome >= 0 ? 'HOME ' + (odds ? odds.HDPHome : -0.5) : 'AWAY ' + (odds ? odds.HDPAway : 0.5);
+  var ftHDP = hdpHome >= 0 ? 'HOME ' + hdpHomeLine : 'AWAY ' + hdpAwayLine;
   var ht1x2 = pHome >= 0.34 ? 'HOME' : (pAway >= 0.34 ? 'AWAY' : 'DRAW');
   var htOU = avgGoals >= 0.8 ? 'OVER 0.5' : 'UNDER 0.5';
   var htHDP = hdpHome >= 0 ? 'HOME' : 'AWAY';
-  var confidence = Math.round(Math.max(pHome, pDraw, pAway) * 100);
-  var rec = ftOU;
-  var probArr = [['FT 1X2', ft1x2, 100*Math.max(pHome,pDraw,pAway)], ['FT O/U', ftOU, 100*overProb], ['HT 1X2', ht1x2, 100*Math.max(pHome,pDraw,pAway)]];
-  probArr.sort(function(a,b){ return b[2]-a[2]; });
-  if(probArr[0][2] >= 70) rec = probArr[0][1];
+  // --- Varied recommendation: pilih peluang tertinggi dari semua market ---
+  var candidates = buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals);
+  var best = candidates[0];
+  var rec = best.pick;
+  var confidence = Math.round(best.prob);
   var htHome = Math.round(pHome * avgGoals * 0.45);
   var htAway = Math.round(pAway * avgGoals * 0.45);
   var ftHome = Math.round(pHome * avgGoals);
@@ -761,7 +783,7 @@ function findTeam(id, teams){
 }
 function findLeague(id, leagues){
   for(var i=0;i<leagues.length;i++){ if(String(leagues[i].LeagueID)===String(id)) return leagues[i]; }
-  return {LeagueID:id, LeagueName:'Unknown'};
+  return {LeagueID:id, LeagueName:'Unknown', LeagueScale:'NATIONAL'};
 }
 function formAnalysis(home, away, results, teams){
   var homeM = 0, homeW = 0, homeD = 0, homeL = 0, homeGf = 0, homeGa = 0, homeCs = 0;
@@ -883,17 +905,41 @@ function htPattern(results){
 }
 function leaguePattern(league, results, teams){
   var total=0, avgGoals=0, homeWin=0, draw=0;
+  var scale = String((league && league.LeagueScale) || 'NATIONAL').toUpperCase();
   for(var i=0;i<results.length;i++){
     var r=results[i];
     var m=findMatch(r.MatchID);
     if(!m) continue;
-    if(league && m.LeagueID && String(m.LeagueID)!==String(league.LeagueID)) continue;
+    // Scale-aware: NATIONAL = liga spesifik, CONTINENTAL = semua liga skala benua,
+    // UNIVERSAL = semua liga skala universal (dunia)
+    if(league){
+      if(scale === 'CONTINENTAL'){
+        // sertakan semua hasil dari liga yang juga CONTINENTAL
+        var mLg = findLeagueByMatch(m, teams);
+        var ms = String((mLg && mLg.LeagueScale) || 'NATIONAL').toUpperCase();
+        if(ms !== 'CONTINENTAL') continue;
+      } else if(scale === 'UNIVERSAL'){
+        var mLgU = findLeagueByMatch(m, teams);
+        var msu = String((mLgU && mLgU.LeagueScale) || 'NATIONAL').toUpperCase();
+        if(msu !== 'UNIVERSAL') continue;
+      } else {
+        // NATIONAL — hanya liga yang sama
+        if(m.LeagueID && String(m.LeagueID)!==String(league.LeagueID)) continue;
+      }
+    }
     total++; var hs=parseScore(r.FTScore,true), as=parseScore(r.FTScore,false);
     avgGoals+=(hs+as);
     if(hs>as) homeWin++; else if(hs===as) draw++;
   }
   if(total===0) return {avgGoals:2.5, homeWin:0.45, drawRate:0.25, awayWin:0.3};
   return {avgGoals:avgGoals/total, homeWin:homeWin/total, drawRate:draw/total, awayWin:(total-homeWin-draw)/total};
+}
+function findLeagueByMatch(match, teams){
+  // cari tim home dari match untuk dapat LeagueID aslinya, lalu cari detail liga
+  var leagueId = match && match.LeagueID;
+  var homeTeam = findTeam(match ? match.HomeTeamID : '', teams);
+  if(!leagueId && homeTeam && homeTeam.LeagueID) leagueId = homeTeam.LeagueID;
+  try { return findLeague(leagueId, readAll('League')); } catch(e){ return {LeagueScale:'NATIONAL'}; }
 }
 function oddsValue(odds){
   if(!odds) return {home:0.5, away:0.5, draw:0.25};
@@ -906,6 +952,69 @@ function oddsValue(odds){
 function overProbability(avgGoals, total){
   var pOver = 1 - Math.exp(-avgGoals*0.8);
   return Math.min(0.9, Math.max(0.1, pOver));
+}
+// Implied over/under probability dari odds (agar bisa recommend UNDER juga)
+function oddsValueOU(odds){
+  if(!odds) return 0.5;
+  var over = parseFloat(odds.OverOdds), under = parseFloat(odds.UnderOdds);
+  if(isNaN(over)||over<=0) over=1.9;
+  if(isNaN(under)||under<=0) under=1.9;
+  var io = 1/over, iu = 1/under;
+  var s = io+iu; if(s<=0) s=1;
+  return io/s;
+}
+// Implied odd/even probability dari odds
+function oddsValueOE(odds){
+  if(!odds) return 0.5;
+  var odd = parseFloat(odds.OddOdds), even = parseFloat(odds.EvenOdds);
+  if(isNaN(odd)||odd<=0) odd=1.9;
+  if(isNaN(even)||even<=0) even=1.9;
+  var io = 1/odd, ie = 1/even;
+  var s = io+ie; if(s<=0) s=1;
+  return io/s;
+}
+// Pola per klub (home/away tendency + over/under tendency) — engine belajar dari data
+function clubPattern(match, results, teams){
+  var home = findTeam(match.HomeTeamID, teams);
+  var away = findTeam(match.AwayTeamID, teams);
+  var hM=0,hW=0,hD=0,hOver=0;
+  var aM=0,aW=0,aD=0,aOver=0;
+  for(var i=0;i<results.length;i++){
+    var r=results[i];
+    var m=findMatch(r.MatchID);
+    if(!m) continue;
+    var hs=parseScore(r.FTScore,true), as=parseScore(r.FTScore,false);
+    if(String(m.HomeTeamID)===String(home.TeamID)){
+      hM++; if(hs>as) hW++; else if(hs===as) hD++;
+      if((hs+as)>=2.5) hOver++;
+    }
+    if(String(m.AwayTeamID)===String(away.TeamID)){
+      aM++; if(as>hs) aW++; else if(as===hs) aD++;
+      if((hs+as)>=2.5) aOver++;
+    }
+  }
+  var hp = hM>0 ? hW/hM : 0.5;
+  var ap = aM>0 ? aW/aM : 0.5;
+  var dp = (hM+aM)>0 ? (hD+aD)/(hM+aM) : 0.25;
+  // preferensi over/under klub
+  var hOverRate = hM>0 ? hOver/hM : 0.5;
+  var aOverRate = aM>0 ? aOver/aM : 0.5;
+  return {home:hp, away:ap, draw:Math.min(0.4,dp), hOverRate:hOverRate, aOverRate:aOverRate};
+}
+// Bangun daftar kandidat rekomendasi dari semua market, urutkan probabilitas tertinggi
+function buildCandidates(pHome, pDraw, pAway, ft1x2, ftHDP, ftOU, ftOE, overProb, oddProb, ouLine, hdpHomeLine, hdpAwayLine, lgPat, clubPat, avgGoals){
+  var arr = [];
+  var hdpPick = (ftHDP||'').indexOf('HOME')===0;
+  var hdpC = hdpPick ? Math.max(pHome*100, 50 + (pHome-pAway)*100) : Math.max(pAway*100, 50 + (pAway-pHome)*100);
+  arr.push({pick: ft1x2, prob: Math.max(pHome,pDraw,pAway)*100});
+  arr.push({pick: ftHDP, prob: Math.min(85, hdpC)});
+  arr.push({pick: ftOU, prob: overProb*100});
+  arr.push({pick: ftOE, prob: oddProb*100});
+  // peluang under & over terpisah agar bisa rekomendasi under
+  arr.push({pick: 'OVER ' + ouLine, prob: overProb*100});
+  arr.push({pick: 'UNDER ' + ouLine, prob: (1-overProb)*100});
+  arr.sort(function(a,b){ return b.prob - a.prob; });
+  return arr;
 }
 function parseScore(score, home){
   if(!score) return 0;
@@ -985,7 +1094,7 @@ function ensureSheets(){
     "User": ["UserID","Username","Email","Phone","Password","Role","CreatedAt"],
     "Continent": ["ContinentID","ContinentName"],
     "Country": ["CountryID","ContinentID","CountryName"],
-    "League": ["LeagueID","CountryID","LeagueName","Season"],
+    "League": ["LeagueID","CountryID","LeagueName","Season","LeagueScale"],
     "Team": ["TeamID","LeagueID","TeamName"],
     "Match": ["MatchID","Date","LeagueID","HomeTeamID","AwayTeamID","Status"],
     "Odds": ["OddsID","MatchID","HomeOdds","DrawOdds","AwayOdds","HDPHome","HDPAway","HDPHomeOdds","HDPAwayOdds","OU_Line","OverOdds","UnderOdds","OddOdds","EvenOdds"],

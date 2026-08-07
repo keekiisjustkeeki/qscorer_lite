@@ -24,8 +24,8 @@ QSCORER.ui.init();
     if (lg) lg.onclick = logout;
     document.querySelectorAll('.nav-links').forEach(l => l.classList.remove('open'));
     QSCORER.util.el('year').textContent = new Date().getFullYear();
-    const donate = QSCORER.util.el('btnDonate');
-    if (donate) donate.onclick = () => QSCORER.ui.toast('Fitur donasi akan segera hadir', 'info');
+const donate = QSCORER.util.el('btnDonate');
+    if (donate) donate.onclick = () => QSCORER.ui.donate();
     const toggle = QSCORER.util.el('navToggle');
     if (toggle) toggle.onclick = () => document.querySelector('.nav-links').classList.toggle('open');
   }
@@ -116,9 +116,12 @@ QSCORER.ui.init();
           <div class="grid g-2col">
             <div class="card anim-fade-up">
               <div class="card-title"><span class="card-icon"><i class="fa-solid fa-sliders"></i></span> Pilih Pertandingan</div>
-              ${leagues.length ? `
+${leagues.length ? `
+              <div class="form-group"><label class="form-label">Cari Liga</label><div class="input-wrap"><i class="icon fa-solid fa-magnifying-glass"></i><input class="input" id="searchLeague" placeholder="Ketik nama liga untuk memfilter..."></div></div>
               <div class="form-group"><label class="form-label">League</label><select class="input no-icon" id="selLeague"><option value="">-- Pilih Liga --</option>${QSCORER.util.option(leagues, 'LeagueID', 'LeagueName')}</select></div>
+<div class="form-group"><label class="form-label">Cari Tim Kandang</label><div class="input-wrap"><i class="icon fa-solid fa-magnifying-glass"></i><input class="input" id="searchHome" placeholder="Ketik nama tim kandang..."></div></div>
               <div class="form-group"><label class="form-label">Home Team</label><select class="input no-icon" id="selHome"><option value="">-- Pilih Tim Kandang --</option></select></div>
+              <div class="form-group"><label class="form-label">Cari Tim Tandang</label><div class="input-wrap"><i class="icon fa-solid fa-magnifying-glass"></i><input class="input" id="searchAway" placeholder="Ketik nama tim tandang..."></div></div>
               <div class="form-group"><label class="form-label">Away Team</label><select class="input no-icon" id="selAway"><option value="">-- Pilih Tim Tandang --</option></select></div>
               <div class="form-group"><label class="form-label">Tanggal</label><input class="input no-icon" type="date" id="matchDate"></div>
               <button class="btn btn-primary btn-block" id="btnCheck"><i class="fa-solid fa-magnifying-glass"></i> Cek & Lanjutkan</button>
@@ -139,17 +142,74 @@ QSCORER.ui.init();
     }
   }
 
-  function bindPredictionSelects(d) {
+function bindPredictionSelects(d) {
     const teams = d.teams || [];
+    const leagues = d.leagues || [];
+    const countries = d.countries || [];
     const selL = QSCORER.util.el('selLeague');
     const selH = QSCORER.util.el('selHome');
     const selA = QSCORER.util.el('selAway');
     const btn = QSCORER.util.el('btnCheck');
+const searchL = QSCORER.util.el('searchLeague');
+    const searchH = QSCORER.util.el('searchHome');
+    const searchA = QSCORER.util.el('searchAway');
+    // teamsInLeague: NATIONAL → hanya tim liga itu sendiri
     const teamsInLeague = (lid) => teams.filter(t => String(t.LeagueID) === String(lid));
+// Resolver tim berdasarkan skala liga:
+    //  - NATIONAL : tim dari liga tersebut (CountryID = negara)
+    //  - CONTINENTAL : semua tim dari liga yg negaranya satu benua. CountryID liga
+    //    diisi ID benua (mis. CONT003 = Eropa) sehingga ambil semua liga benua itu.
+    //  - UNIVERSAL : semua tim di database (tidak terbatas negara/benua)
+    const getTeamsForLeague = (lid) => {
+      if (!lid) return teams;
+      const lg = leagues.find(l => String(l.LeagueID) === String(lid));
+      const scale = String((lg && lg.LeagueScale) || 'NATIONAL').toUpperCase();
+      if (scale === 'UNIVERSAL') return teams.slice();
+      if (scale === 'CONTINENTAL') {
+        // CountryID pada liga CONTINENTAL menyimpan ID benua
+        const continentId = lg && lg.CountryID ? String(lg.CountryID) : null;
+        if (!continentId) return teamsInLeague(lid); // fallback hanya liga itu
+        // semua liga yang negaranya berada di benua yang sama
+        const sameContinentLeagues = leagues.filter(ol => {
+          const oc = countries.find(c => String(c.CountryID) === String(ol.CountryID));
+          return oc && String(oc.ContinentID) === String(continentId);
+        });
+        const ids = sameContinentLeagues.map(ol => String(ol.LeagueID));
+        return teams.filter(t => ids.indexOf(String(t.LeagueID)) >= 0);
+      }
+      // NATIONAL (default)
+      return teamsInLeague(lid);
+    };
+    // Search filter untuk liga — pangkas opsi dropdown liga sesuai kata kunci
+    if (searchL) {
+      searchL.oninput = () => {
+        const q = (searchL.value || '').toLowerCase().trim();
+        const filtered = q ? leagues.filter(l => (l.LeagueName || '').toLowerCase().indexOf(q) >= 0) : leagues;
+        selL.innerHTML = '<option value="">-- Pilih Liga --</option>' + QSCORER.util.option(filtered, 'LeagueID', 'LeagueName');
+      };
+    }
+// Search filter hub (untuk home & away) — pangkas opsi sesuai kata kunci masing-masing
+    const fillHome = () => {
+      const q = (searchH.value || '').toLowerCase().trim();
+      let base = selL.value ? getTeamsForLeague(selL.value) : teams;
+      const filtered = q ? base.filter(t => (t.TeamName || '').toLowerCase().indexOf(q) >= 0) : base;
+      selH.innerHTML = '<option value="">-- Pilih Tim Kandang --</option>' + QSCORER.util.option(filtered, 'TeamID', 'TeamName');
+    };
+    const fillAway = () => {
+      const q = (searchA.value || '').toLowerCase().trim();
+      let base = selL.value ? getTeamsForLeague(selL.value) : teams;
+      const filtered = q ? base.filter(t => (t.TeamName || '').toLowerCase().indexOf(q) >= 0) : base;
+      selA.innerHTML = '<option value="">-- Pilih Tim Tandang --</option>' + QSCORER.util.option(filtered, 'TeamID', 'TeamName');
+    };
+    if (searchH) searchH.oninput = fillHome;
+    if (searchA) searchA.oninput = fillAway;
     selL.onchange = () => {
-      const opts = teamsInLeague(selL.value);
+      const opts = getTeamsForLeague(selL.value);
       selH.innerHTML = '<option value="">-- Pilih Tim Kandang --</option>' + QSCORER.util.option(opts, 'TeamID', 'TeamName');
       selA.innerHTML = '<option value="">-- Pilih Tim Tandang --</option>' + QSCORER.util.option(opts, 'TeamID', 'TeamName');
+      // kosongkan pencarian tim agar tidak membatasi liga baru
+      if (searchH) searchH.value = '';
+      if (searchA) searchA.value = '';
     };
     btn.onclick = async () => {
       const box = QSCORER.util.el('predBox');
@@ -209,10 +269,27 @@ QSCORER.ui.init();
     };
   }
 
-  async function runEngineFlow(sel) {
-    // loading process steps
+async function runEngineFlow(sel) {
     const box = QSCORER.util.el('predBox');
+    // BACA DULU nilai odds dari input SEBELUM loader mengganti innerHTML predBox
+    // (mencegah input hilang sehingga odds tersimpan kosong).
+    const gv = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+    sel.odds = sel.odds || {};
+    sel.odds.HomeOdds = gv('oHome');
+    sel.odds.DrawOdds = gv('oDraw');
+    sel.odds.AwayOdds = gv('oAway');
+    sel.odds.HDPHome = gv('oHdpHome');
+    sel.odds.HDPAway = gv('oHdpAway');
+    sel.odds.HDPHomeOdds = gv('oHdpHomeOdds');
+    sel.odds.HDPAwayOdds = gv('oHdpAwayOdds');
+    sel.odds.OU_Line = gv('oOULine');
+    sel.odds.OverOdds = gv('oOverOdds');
+    sel.odds.UnderOdds = gv('oUnderOdds');
+    sel.odds.OddOdds = gv('oOddOdds');
+    sel.odds.EvenOdds = gv('oEvenOdds');
+    // loading process steps
     const steps = [
+      'Menyimpan Data & Odds...',
       'Analyzing Match Data...',
       'Checking Team Performance...',
       'Calculating Odds Value...',
@@ -221,7 +298,7 @@ QSCORER.ui.init();
     ];
     for (const st of steps) {
       box.innerHTML = '<div style="padding:30px;text-align:center">' + QSCORER.ui.loader(st) + '</div>';
-      await wait(650);
+      await wait(550);
     }
 try {
       // Create match — backend returns matchId; fallback to reload if not provided
@@ -237,21 +314,20 @@ let match = { MatchID: mk.matchId, LeagueID: sel.league, Date: sel.date, HomeTea
       }
       if (!match || !match.MatchID) throw new Error('Match tidak ditemukan setelah dibuat. Coba lagi / muat ulang halaman.');
 // Add odds — kirim semua field sesuai kolom sheet "Odds" di database.md
-      const gv = (id) => { const el = QSCORER.util.el(id); return el ? el.value : ''; };
       const odds = await QSCORER.api.addOdds({
         MatchID: match.MatchID,
-        HomeOdds: gv('oHome'),
-        DrawOdds: gv('oDraw'),
-        AwayOdds: gv('oAway'),
-        HDPHome: gv('oHdpHome'),
-        HDPAway: gv('oHdpAway'),
-        HDPHomeOdds: gv('oHdpHomeOdds'),
-        HDPAwayOdds: gv('oHdpAwayOdds'),
-        OU_Line: gv('oOULine'),
-        OverOdds: gv('oOverOdds'),
-        UnderOdds: gv('oUnderOdds'),
-        OddOdds: gv('oOddOdds'),
-        EvenOdds: gv('oEvenOdds')
+        HomeOdds: sel.odds.HomeOdds,
+        DrawOdds: sel.odds.DrawOdds,
+        AwayOdds: sel.odds.AwayOdds,
+        HDPHome: sel.odds.HDPHome,
+        HDPAway: sel.odds.HDPAway,
+        HDPHomeOdds: sel.odds.HDPHomeOdds,
+        HDPAwayOdds: sel.odds.HDPAwayOdds,
+        OU_Line: sel.odds.OU_Line,
+        OverOdds: sel.odds.OverOdds,
+        UnderOdds: sel.odds.UnderOdds,
+        OddOdds: sel.odds.OddOdds,
+        EvenOdds: sel.odds.EvenOdds
       });
       if (odds.status === 'error') throw new Error(odds.message);
       // Run engine
@@ -352,14 +428,65 @@ QSCORER.ui.toast('Hasil Prediksi Selesai', 'success');
     try {
       const d = await fetchData();
       const preds = d.predictions || [];
-      if (!preds.length) { main.innerHTML = emptyCard('fa-eye', 'Belum Ada Prediksi', 'Prediksi yang dibuat otomatis akan tampil di sini.'); return; }
-      const rows = preds.slice().reverse().map(p => {
-        const m = (d.matches || []).find(x => String(x.MatchID) === String(p.MatchID));
-        const h = ((d.teams || []).find(t => m && String(t.TeamID) === String(m.HomeTeamID)) || {}).TeamName || 'Home';
-        const a = ((d.teams || []).find(t => m && String(t.TeamID) === String(m.AwayTeamID)) || {}).TeamName || 'Away';
-        return `<tr><td>${QSCORER.util.fmtDate(m ? m.Date : '')}</td><td><b>${QSCORER.util.esc(h + ' vs ' + a)}</b></td><td><span class="badge badge-blue">${QSCORER.util.esc(p.FT_1X2)}</span></td><td><span class="badge badge-green">${QSCORER.util.esc(p.FT_OU)}</span></td><td><span class="badge badge-gold">${QSCORER.util.esc(p.Recommendation)}</span></td><td><b>${p.Confidence}%</b></td></tr>`;
-      }).join('');
-      main.innerHTML = `<div class="container section"><div class="section-head"><div class="section-title"><span class="dot"></span> View Prediction</div><span class="badge badge-blue"><i class="fa-solid fa-eye"></i> Prediksi tersimpan</span></div><div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Tanggal</th><th>Pertandingan</th><th>FT 1X2</th><th>FT O/U</th><th>Rekomendasi</th><th>Confidence</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+      main.innerHTML = `
+        <div class="container section">
+          <div class="section-head"><div class="section-title"><span class="dot"></span> View Prediction</div><span class="badge badge-blue"><i class="fa-solid fa-eye"></i> Prediksi tersimpan</span></div>
+          <div class="card" style="margin-bottom:16px">
+            <div class="grid g-2col" style="gap:14px">
+              <div class="form-group" style="margin-bottom:0"><label class="form-label">Filter Tanggal (Pilih Hari)</label><input class="input no-icon" type="date" id="vpDate"></div>
+              <div class="form-group" style="margin-bottom:0"><label class="form-label">Cari Liga / Tim</label><div class="input-wrap"><i class="icon fa-solid fa-magnifying-glass"></i><input class="input" id="vpSearch" placeholder="Cari nama liga atau tim..."></div></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center">
+              <button class="btn btn-primary btn-sm" id="vpToday">Hari Ini</button>
+              <button class="btn btn-ghost btn-sm" id="vpAll">Semua Tanggal</button>
+              <span style="margin-left:auto;color:var(--muted);font-size:.84rem" id="vpCount"></span>
+            </div>
+          </div>
+          <div class="card"><div class="table-wrap"><table class="table">
+            <thead><tr><th>Tanggal</th><th>Liga</th><th>Pertandingan</th><th>FT 1X2</th><th>FT HDP</th><th>FT O/U</th><th>Rekomendasi</th><th>Confidence</th></tr></thead>
+            <tbody id="vpBody"></tbody></table></div></div>
+        </div>`;
+      // Default filter = tanggal real-time hari ini
+      const today = new Date().toISOString().substring(0, 10);
+      const dateEl = QSCORER.util.el('vpDate');
+      const searchEl = QSCORER.util.el('vpSearch');
+      dateEl.value = today;
+      const applyFilter = () => {
+        const q = (searchEl.value || '').toLowerCase().trim();
+        const chosenDate = dateEl.value;
+        const filtered = preds.slice().reverse().filter(p => {
+          const m = (d.matches || []).find(x => String(x.MatchID) === String(p.MatchID));
+          // Date filter
+          if (chosenDate) {
+            const md = m ? String(m.Date).substring(0, 10) : '';
+            if (md !== chosenDate) return false;
+          }
+          // Search filter
+          if (q) {
+            const lg = ((d.leagues || []).find(l => m && String(l.LeagueID) === String(m.LeagueID)) || {}).LeagueName || '';
+            const h = ((d.teams || []).find(t => m && String(t.TeamID) === String(m.HomeTeamID)) || {}).TeamName || '';
+            const a = ((d.teams || []).find(t => m && String(t.TeamID) === String(m.AwayTeamID)) || {}).TeamName || '';
+            if ((lg + ' ' + h + ' ' + a).toLowerCase().indexOf(q) < 0) return false;
+          }
+          return true;
+        });
+        const rows = filtered.map(p => {
+          const m = (d.matches || []).find(x => String(x.MatchID) === String(p.MatchID));
+          const lg = ((d.leagues || []).find(l => m && String(l.LeagueID) === String(m.LeagueID)) || {}).LeagueName || '-';
+          const h = ((d.teams || []).find(t => m && String(t.TeamID) === String(m.HomeTeamID)) || {}).TeamName || 'Home';
+          const a = ((d.teams || []).find(t => m && String(t.TeamID) === String(m.AwayTeamID)) || {}).TeamName || 'Away';
+          return `<tr><td>${QSCORER.util.fmtDate(m ? m.Date : '')}</td><td><span class="badge badge-blue">${QSCORER.util.esc(lg)}</span></td><td><b>${QSCORER.util.esc(h + ' vs ' + a)}</b></td><td><span class="badge badge-gold">${QSCORER.util.esc(p.FT_1X2)}</span></td><td>${QSCORER.util.esc(p.FT_HDP || '-')}</td><td><span class="badge badge-green">${QSCORER.util.esc(p.FT_OU)}</span></td><td><span class="badge badge-gold">${QSCORER.util.esc(p.Recommendation)}</span></td><td><b>${p.Confidence}%</b></td></tr>`;
+        }).join('');
+        QSCORER.util.el('vpBody').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Tidak ada prediksi pada tanggal/filter ini</td></tr>';
+        QSCORER.util.el('vpCount').textContent = filtered.length + ' prediksi';
+        if (!preds.length) QSCORER.util.el('vpCount').textContent = 'Belum ada prediksi';
+      };
+      dateEl.onchange = applyFilter;
+      searchEl.oninput = applyFilter;
+      QSCORER.util.el('vpToday').onclick = () => { dateEl.value = today; applyFilter(); };
+      QSCORER.util.el('vpAll').onclick = () => { dateEl.value = ''; applyFilter(); };
+      if (!preds.length) { QSCORER.util.el('vpBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Belum ada prediksi. Buat prediksi di menu Prediction.</td></tr>'; QSCORER.util.el('vpCount').textContent = '0 prediksi'; return; }
+      applyFilter();
     } catch (e) { main.innerHTML = errCard(e); }
   }
 
